@@ -30,6 +30,9 @@ OUTPUT_ENCODING = "utf-8"
 CONSOLE_WIDTH = 60
 ENABLE_IMAGE_EXPORT = True
 
+# ============ 机器人过滤 ============
+FILTER_BOT_MESSAGES = True  # 是否过滤QQ机器人消息
+
 # ============ OpenAI 配置 ============
 OPENAI_API_KEY = "" 
 OPENAI_BASE_URL = "" 
