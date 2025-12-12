@@ -1,10 +1,7 @@
 # QQ群年度报告分析器
 
-### ❗❗本地功能现已基本完善，但线上版尚未完成还在画饼❗❗
-只是没做完先睡了（
 
----
-一个功能强大的 QQ 群聊天记录分析工具，可以生成精美的年度报告。现已支持**线上版**，提供完整的 Web 服务！
+ QQ 群聊天记录分析工具，可以生成精美的年度报告。现已支持**线上版**，提供完整的 Web 服务！
 
 ## ✨ 特性
 
@@ -59,9 +56,39 @@ python main.py
 
 ### 线上版部署
 
-完整的部署指南请查看 [DEPLOYMENT.md](./DEPLOYMENT.md)
+#### 🎯 一键启动（推荐）
 
-#### 快速本地测试
+项目提供了一键启动脚本，可自动完成环境配置和服务启动：
+
+**Windows 系统：**
+```bash
+# 双击运行或在命令行执行
+start.bat
+```
+
+**Linux / Mac 系统：**
+```bash
+# 添加执行权限（仅首次需要）
+chmod +x start.sh stop.sh
+
+# 启动服务
+./start.sh
+
+# 停止服务
+./stop.sh
+```
+
+**首次运行注意事项：**
+- 确保已安装 Python 3.8+、Node.js 16+ 和 MySQL
+- 脚本会自动创建 `backend/.env` 配置文件
+- 请根据提示配置 MySQL 数据库密码
+- 脚本会自动安装所有依赖并初始化数据库
+
+详细使用说明请查看 [QUICKSTART_SCRIPTS.md](./QUICKSTART_SCRIPTS.md)
+
+#### 手动部署
+
+
 
 ```bash
 # 1. 配置后端
@@ -159,7 +186,6 @@ GET /report/{report_id}
 DELETE /api/reports/{report_id}
 ```
 
-更多 API 详情请查看 [DEPLOYMENT.md](./DEPLOYMENT.md)
 
 ## ⚙️ 配置说明
 
@@ -183,7 +209,7 @@ MERGE_MIN_PROB = 0.3          # 合并条件概率阈值
 
 # AI 功能（需要配置 OpenAI API）
 OPENAI_API_KEY = "sk-..."    # OpenAI API Key
-OPENAI_MODEL = "gpt-4"       # 使用的模型
+OPENAI_MODEL = ""       # 使用的模型
 AI_COMMENT_MODE = 'ask'      # 'always', 'never', 'ask'
 
 # 图片导出
@@ -217,7 +243,7 @@ FLASK_PORT=5000
   - 夜猫子/早起人
   - 语音达人
   - 图片分享达人
-- 📅 **时间分析**：活跃时段、周/月分布
+- 📅 **时间分析**：活跃时段
 - 🎭 **趣味统计**：最长发言、撤回次数等
 
 ## 🛠️ 技术栈
@@ -245,7 +271,6 @@ FLASK_PORT=5000
 - [x] Web 版本开发
 - [x] 用户选词功能
 - [x] 历史记录管理
-- [ ] 用户认证系统
 - [ ] 报告分享功能优化
 - [ ] 数据可视化增强
 - [ ] 移动端优化
@@ -256,7 +281,11 @@ FLASK_PORT=5000
 
 ## 📄 许可证
 
-MIT License
+AGPL-3.0 License
+
+本项目采用 GNU Affero General Public License v3.0 开源协议。
+
+**重要提示**：如果您修改本软件并通过网络提供服务，必须向用户提供修改后的完整源代码。
 
 ## 🙏 致谢
 
@@ -265,7 +294,8 @@ MIT License
 
 ## 📮 联系方式
 
-- GitHub: [@ZiHuixi](https://github.com/ZiHuixi)
+- GitHub: [@ZiHuixi](https://github.com/ZiHuixi) & [@Jingkun Yu
+](https://github.com/yujingkun1)
 - 项目地址: https://github.com/ZiHuixi/QQgroup-annual-report-analyzer
 
 ## 🌟 Star History

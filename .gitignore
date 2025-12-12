@@ -55,6 +55,7 @@ frontend/.DS_Store
 
 # 日志
 *.log
+logs/
 
 # 系统文件
 .DS_Store
@@ -63,3 +64,7 @@ Thumbs.db
 # 临时文件
 *.tmp
 *.temp
+
+# 启动脚本生成的文件
+.backend.pid
+.frontend.pid

@@ -35,17 +35,14 @@ class DatabaseService:
         """初始化数据库和表结构"""
         conn = None
         try:
-            # 先连接不指定数据库
             config_without_db = self.config.copy()
             database_name = config_without_db.pop('database')
             conn = pymysql.connect(**config_without_db)
             cursor = conn.cursor()
             
-            # 创建数据库
             cursor.execute(f"CREATE DATABASE IF NOT EXISTS {database_name} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
             cursor.execute(f"USE {database_name}")
             
-            # 创建报告表（只保存关键数据，前端动态渲染）
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS reports (
                     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -77,7 +74,6 @@ class DatabaseService:
     def create_report(self, report_id: str, chat_name: str, message_count: int,
                      selected_words: List[Dict], statistics: Dict, 
                      ai_comments: Optional[Dict] = None) -> bool:
-        """创建报告记录（只存关键数据）"""
         conn = None
         try:
             conn = self.get_connection()
@@ -109,7 +105,6 @@ class DatabaseService:
                 conn.close()
     
     def get_report(self, report_id: str) -> Optional[Dict[str, Any]]:
-        """获取报告详情（返回JSON数据供前端渲染）"""
         conn = None
         try:
             conn = self.get_connection()

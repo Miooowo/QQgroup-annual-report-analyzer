@@ -21,7 +21,6 @@ def init_database():
     
     print(f"连接到 MySQL 服务器 {host}:{port}...")
     
-    # 连接到MySQL服务器（不指定数据库）
     conn = pymysql.connect(
         host=host,
         port=port,
@@ -32,20 +31,16 @@ def init_database():
     
     try:
         with conn.cursor() as cursor:
-            # 创建数据库
             print(f"创建数据库 {database}...")
             cursor.execute(f"CREATE DATABASE IF NOT EXISTS {database} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
             print(f"✓ 数据库 {database} 已创建或已存在")
             
-            # 切换到目标数据库
             cursor.execute(f"USE {database}")
             
-            # 删除旧表（如果存在）
             print("删除旧表（如果存在）...")
             cursor.execute("DROP TABLE IF EXISTS reports")
             print("✓ 旧表已删除")
             
-            # 创建新的报告表（只存关键数据，前端动态渲染）
             print("创建报告表...")
             cursor.execute("""
                 CREATE TABLE reports (

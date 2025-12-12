@@ -154,13 +154,31 @@
           </div>
           
           <div style="margin-top: 20px;">
-            <p style="margin-bottom: 10px; font-weight: 500;">📊 访问您的报告：</p>
-            <div class="url-display">
-              {{ reportUrl }}
+            <p style="margin-bottom: 10px; font-weight: 500;">🎨 选择模板风格：</p>
+            <div class="template-selector">
+              <div 
+                v-for="template in availableTemplates" 
+                :key="template.id"
+                :class="['template-option', { selected: selectedTemplate === template.id }]"
+                @click="selectedTemplate = template.id"
+              >
+                <div class="template-name">{{ template.name }}</div>
+                <div class="template-desc">{{ template.description }}</div>
+              </div>
             </div>
-            <button @click="openReport(finalResult.report_id)" class="primary" style="margin-top: 15px;">
-              🔗 立即查看报告
-            </button>
+            
+            <p style="margin: 15px 0 10px 0; font-weight: 500;">📊 访问您的报告：</p>
+            <div class="url-display">
+              {{ getTemplateReportUrl(selectedTemplate) }}
+            </div>
+            <div class="flex" style="margin-top: 15px; gap: 10px;">
+              <button @click="openTemplateReport(selectedTemplate)" class="primary">
+                🔗 立即查看报告
+              </button>
+              <button @click="copyTemplateUrl(selectedTemplate)">
+                📋 复制链接
+              </button>
+            </div>
           </div>
 
           <div class="flex" style="margin-top: 30px;">
@@ -285,6 +303,52 @@ const searchQuery = ref('')
 
 // 本地存储的报告ID列表（实现历史记录隔离）
 const MY_REPORTS_KEY = 'my_report_ids'
+
+// 模板相关
+const availableTemplates = ref([])
+const selectedTemplate = ref('classic')
+
+// 加载可用模板列表
+const loadTemplates = async () => {
+  try {
+    const { data } = await axios.get(`${API_BASE}/templates`)
+    availableTemplates.value = data.templates || []
+    if (availableTemplates.value.length > 0) {
+      selectedTemplate.value = availableTemplates.value[0].id
+    }
+  } catch (err) {
+    console.error('加载模板失败:', err)
+    // 使用默认模板
+    availableTemplates.value = [{
+      id: 'classic',
+      name: '模板1',
+      description: '最初的模板'
+    }]
+  }
+}
+
+// 获取指定模板的报告URL
+const getTemplateReportUrl = (templateId) => {
+  if (!finalResult.value.report_id) return ''
+  return `${SITE_URL}/report/${templateId}/${finalResult.value.report_id}`
+}
+
+// 打开指定模板的报告
+const openTemplateReport = (templateId) => {
+  if (!finalResult.value.report_id) return
+  window.open(`/report/${templateId}/${finalResult.value.report_id}`, '_blank')
+}
+
+// 复制指定模板的URL
+const copyTemplateUrl = async (templateId) => {
+  const url = getTemplateReportUrl(templateId)
+  try {
+    await navigator.clipboard.writeText(url)
+    alert('链接已复制到剪贴板')
+  } catch (err) {
+    prompt('请手动复制链接：', url)
+  }
+}
 
 // 保存报告ID到本地存储
 const saveMyReport = (reportId) => {
@@ -550,6 +614,11 @@ const formatDate = (dateStr) => {
     minute: '2-digit'
   })
 }
+
+// 页面加载时初始化
+onMounted(() => {
+  loadTemplates()
+})
 </script>
 
 <style scoped>
@@ -976,5 +1045,45 @@ button.danger {
 
 button.danger:hover:not(:disabled) {
   background: #c82333;
+}
+
+/* 模板选择器样式 */
+.template-selector {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 15px;
+  margin-top: 10px;
+}
+
+.template-option {
+  padding: 15px;
+  background: white;
+  border: 2px solid #c3e6cb;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.template-option:hover {
+  border-color: #28a745;
+  box-shadow: 0 2px 12px rgba(40,167,69,0.2);
+}
+
+.template-option.selected {
+  background: #d4edda;
+  border-color: #28a745;
+  box-shadow: 0 3px 15px rgba(40,167,69,0.3);
+}
+
+.template-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: #155724;
+  margin-bottom: 5px;
+}
+
+.template-desc {
+  font-size: 14px;
+  color: #666;
 }
 </style>

@@ -2,7 +2,8 @@
 """
 QQ群年度报告分析器 - 配置文件
 
-本文件包含所有可调参数，复制为 config.py 后修改使用
+本文件包含命令行工具的所有可调参数，复制为 config.py 后修改使用
+注意：后端服务配置请在 backend/.env 中设置
 """
 
 # ============================================
@@ -159,18 +160,28 @@ FILTER_BOT_MESSAGES = True
 # AI 功能配置（可选）
 # ============================================
 
+# OpenAI 配置优先级说明：
+# 1. 推荐方式：在 backend/.env 中配置（更安全，不会被 git 追踪）
+# 2. 备用方式：在此文件中配置（不推荐，容易泄露密钥）
+# 
+# 如果两处都配置，backend/.env 的优先级更高
+# main.py 会自动加载 backend/.env 中的环境变量
+
 # OpenAI API Key
 # 留空则不使用 AI 功能
 # 获取地址：https://platform.openai.com/api-keys
+# ⚠️ 建议在 backend/.env 中配置 OPENAI_API_KEY
 OPENAI_API_KEY = ""
 
 # OpenAI API 基础地址
 # 官方地址：https://api.openai.com/v1
 # 也可使用代理地址或其他兼容 OpenAI API 的服务
+# ⚠️ 建议在 backend/.env 中配置 OPENAI_BASE_URL
 OPENAI_BASE_URL = ""
 
 # 使用的模型
 # 推荐：gpt-4, gpt-4-turbo, gpt-3.5-turbo
+# ⚠️ 建议在 backend/.env 中配置 OPENAI_MODEL
 OPENAI_MODEL = ""
 
 # AI 点评模式

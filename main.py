@@ -3,9 +3,8 @@
 """
 QQ群聊年度报告生成器 - 主入口
 
-Author: Claude Opus 4.5 & Huixi
-GitHub: https://github.com/ZiHuixi/QQgroup-annual-report-analyzer
-License: MIT
+Copyright (C) 2024 ZiHuixi
+Licensed under AGPL-3.0: https://www.gnu.org/licenses/agpl-3.0.html
 
 Usage:
     python main.py [input_file]
@@ -19,6 +18,15 @@ import json
 
 # 添加当前目录到路径
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# 尝试加载 backend/.env 文件中的环境变量
+try:
+    from dotenv import load_dotenv
+    backend_env_path = os.path.join(os.path.dirname(__file__), 'backend', '.env')
+    if os.path.exists(backend_env_path):
+        load_dotenv(backend_env_path)
+except ImportError:
+    pass  # python-dotenv 未安装，跳过
 
 import config as cfg
 from utils import load_json, sanitize_filename

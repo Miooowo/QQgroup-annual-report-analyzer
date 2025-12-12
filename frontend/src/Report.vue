@@ -1,179 +1,52 @@
 <template>
   <div class="report-page-wrapper">
-  <div class="report-container" v-if="report">
-    <div class="stripe"></div>
+    <!-- 动态加载模板组件 -->
+    <component 
+      v-if="report && templateComponent" 
+      :is="templateComponent"
+      :report="report"
+      :formatNumber="formatNumber"
+      :truncateText="truncateText"
+      :getTitleClass="getTitleClass"
+      :handleImageError="handleImageError"
+      :getHourHeight="getHourHeight"
+      :getPeakHour="getPeakHour"
+    />
     
-    <!-- 头部 -->
-    <div class="header">
-      <div class="header-badge">Annual Report</div>
-      <div class="header-star-group">★ ★ ★</div>
-      <h1 :class="getTitleClass(report.chat_name)">{{ report.chat_name }}</h1>
-      <div class="subtitle">年度报告</div>
-      <div class="header-stats">
-        <div class="stat-box">
-          <div class="stat-value">{{ formatNumber(report.message_count) }}</div>
-          <div class="stat-label">消息总数</div>
+    <!-- 模板加载失败提示 -->
+    <div v-else-if="report && !templateComponent" class="template-error-container">
+      <div class="template-error">
+        <h2>⚠️ 模板加载失败</h2>
+        <p>无法加载模板文件，请检查模板配置</p>
+        <div class="template-info">
+          <p>模板ID: <code>{{ currentTemplateId }}</code></p>
+          <p>报告ID: <code>{{ currentReportId }}</code></p>
         </div>
+        <button @click="loadReport">重新加载</button>
       </div>
     </div>
     
-    <div class="stripe-diagonal"></div>
-    
-    <!-- 柱状图 -->
-    <div class="chart-section">
-      <div class="section-header">
-        <div class="section-title">热词榜</div>
-      </div>
-      
-      <div class="bar-chart">
-        <div v-for="(word, index) in report.selected_words" :key="word.word" class="bar-item">
-          <div class="bar-value">{{ word.freq }}</div>
-          <div class="bar-wrapper">
-            <div class="bar" :style="{ height: word.bar_height + '%' }">
-              <div v-for="(seg, segIndex) in word.segments" :key="segIndex"
-                   class="bar-segment" 
-                   :style="{ height: seg.percent + '%', backgroundColor: seg.color }">
-              </div>
-            </div>
-          </div>
-          <div class="bar-label">{{ word.word }}</div>
-          <div class="bar-rank">#{{ index + 1 }}</div>
-          <div class="bar-contributors">
-            <div v-for="(item, itemIndex) in word.legend" :key="itemIndex"
-                 :class="['bar-contributor-item', { empty: !item.name }]">
-              <div class="bar-contributor-dot" :style="{ background: item.color }"></div>
-              <span class="bar-contributor-name">{{ item.name }}</span>
-            </div>
-          </div>
-        </div>
+    <!-- 数据加载中 -->
+    <div v-else-if="loading" class="loading-container">
+      <div class="loading">
+        <div class="loading-spinner"></div>
+        <p>加载报告数据中...</p>
       </div>
     </div>
     
-    <div class="divider">
-      <div class="divider-line"></div>
+    <!-- 数据加载错误 -->
+    <div v-else-if="error" class="error-container">
+      <div class="error-message">
+        <h2>❌ 加载失败</h2>
+        <p>{{ error }}</p>
+      </div>
+      <button @click="loadReport">重新加载</button>
     </div>
-    
-    <!-- 热词卡片 -->
-    <div class="section">
-      <div class="section-header">
-        <div class="section-title">热词档案</div>
-      </div>
-      
-      <div class="word-cards">
-        <div v-for="(word, index) in report.selected_words" :key="word.word" 
-             :class="['word-card', `color-${index + 1}`]">
-          <div class="word-card-header">
-            <div class="word-card-left">
-              <div class="word-card-rank">#{{ index + 1 }}</div>
-              <div class="word-card-title">{{ word.word }}</div>
-            </div>
-            <div class="word-card-freq">{{ word.freq }}次</div>
-          </div>
-          
-          <div v-if="word.ai_comment" class="word-card-comment">{{ word.ai_comment }}</div>
-          
-          <div class="word-card-contributors">
-            {{ word.contributors_text }}
-          </div>
-          
-          <ul class="word-card-samples">
-            <li v-for="(sample, sampleIndex) in word.samples.slice(0, 3)" :key="sampleIndex">
-              {{ truncateText(sample, 40) }}
-            </li>
-          </ul>
-        </div>
-      </div>
-    </div>
-    
-    <div class="stripe"></div>
-    
-    <!-- 榜单 -->
-    <div class="section rankings-section">
-      <div class="section-header">
-        <div class="section-title">荣誉殿堂</div>
-      </div>
-      
-      <div class="rankings-grid">
-        <div v-for="ranking in report.rankings" :key="ranking.title" class="ranking-card">
-          <div class="ranking-card-header">
-            {{ ranking.icon }} {{ ranking.title }}
-          </div>
-          
-          <div v-if="ranking.first" class="ranking-first">
-            <div class="ranking-first-crown">👑</div>
-            <img class="ranking-first-avatar" 
-                 :src="ranking.first.avatar" 
-                 :alt="ranking.first.name"
-                 @error="handleImageError">
-            <div class="ranking-first-name">{{ ranking.first.name }}</div>
-            <div class="ranking-first-value">{{ ranking.first.value }}{{ ranking.unit }}</div>
-          </div>
-          
-          <div v-if="ranking.others" class="ranking-others">
-            <div v-for="(item, itemIndex) in ranking.others" :key="itemIndex" class="ranking-item">
-              <div class="ranking-item-pos">{{ itemIndex + 2 }}</div>
-              <img class="ranking-item-avatar" 
-                   :src="item.avatar" 
-                   :alt="item.name"
-                   @error="handleImageError">
-              <div class="ranking-item-name">{{ item.name }}</div>
-              <div class="ranking-item-value">{{ item.value }}{{ ranking.unit }}</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-    
-    <!-- 时段分布 -->
-    <div class="section hour-section">
-      <div class="section-header">
-        <div class="section-title">活跃时段</div>
-      </div>
-      
-      <div class="hour-chart-container">
-        <div class="hour-chart">
-          <div v-for="(hour, index) in report.statistics?.hourDistribution || {}" :key="index"
-               class="hour-bar" :style="{ height: getHourHeight(hour) + '%' }"></div>
-        </div>
-        <div class="hour-labels">
-          <span>0时</span>
-          <span>6时</span>
-          <span>12时</span>
-          <span>18时</span>
-          <span>24时</span>
-        </div>
-        <div class="hour-peak">
-          ⭐ 最活跃时段
-          <div class="hour-peak-badge">{{ getPeakHour() }}:00 - {{ getPeakHour() + 1 }}:00</div>
-        </div>
-      </div>
-    </div>
-    
-    <div class="stripe-diagonal"></div>
-    
-    <!-- 页脚 -->
-    <div class="footer">
-      <div class="footer-text">
-        Github.com/ZiHuixi/QQgroup-annual-report-analyzer
-      </div>
-    </div>
-    
-    <div class="stripe-thin"></div>
-  </div>
-  
-  <div v-else-if="loading" class="loading-container">
-    <div class="loading">加载中...</div>
-  </div>
-  
-  <div v-else-if="error" class="error-container">
-    <div class="error-message">{{ error }}</div>
-    <button @click="loadReport">重新加载</button>
-  </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, shallowRef } from 'vue'
 import axios from 'axios'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
@@ -181,12 +54,41 @@ const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const report = ref(null)
 const loading = ref(true)
 const error = ref(null)
+const templateComponent = shallowRef(null)
+const currentTemplateId = ref('')
+const currentReportId = ref('')
 
-// 获取路由参数
-const getReportId = () => {
+// 获取路由参数（支持 /report/{id} 和 /report/{template}/{id}）
+const getRouteParams = () => {
   const path = window.location.pathname
-  const match = path.match(/\/report\/([^/]+)/)
-  return match ? match[1] : null
+  // 尝试匹配 /report/{template}/{id}
+  let match = path.match(/\/report\/([^/]+)\/([^/]+)/)
+  if (match) {
+    return { templateId: match[1], reportId: match[2] }
+  }
+  // 尝试匹配 /report/{id}
+  match = path.match(/\/report\/([^/]+)/)
+  if (match) {
+    return { templateId: 'classic', reportId: match[1] }
+  }
+  return null
+}
+
+// 保持向后兼容
+const getReportId = () => {
+  const params = getRouteParams()
+  return params ? params.reportId : null
+}
+
+// 动态加载模板组件
+const loadTemplate = async (templateId) => {
+  try {
+    const module = await import(`./templates/${templateId}.vue`)
+    templateComponent.value = module.default
+  } catch (err) {
+    console.warn(`模板 ${templateId} 加载失败，使用默认模板`, err)
+    templateComponent.value = null
+  }
 }
 
 // 加载报告数据
@@ -263,8 +165,14 @@ const getPeakHour = () => {
   return maxHour
 }
 
-// 页面加载时获取数据
-onMounted(() => {
+// 页面加载时获取数据和加载模板
+onMounted(async () => {
+  const params = getRouteParams()
+  if (params) {
+    currentTemplateId.value = params.templateId
+    currentReportId.value = params.reportId
+    await loadTemplate(params.templateId)
+  }
   loadReport()
 })
 </script>
@@ -284,30 +192,107 @@ onMounted(() => {
   margin: 0;
 }
 
-.loading-container, .error-container {
+.loading-container, .error-container, .template-error-container {
   display: flex;
+  flex-direction: column;
   justify-content: center;
   align-items: center;
   min-height: 100vh;
-  background: var(--black);
-  color: var(--cream);
+  color: #f5f5dc;
+  text-align: center;
+  padding: 20px;
 }
 
 .loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+
+.loading-spinner {
+  width: 50px;
+  height: 50px;
+  border: 4px solid rgba(212, 175, 55, 0.2);
+  border-top-color: #d4af37;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.loading p {
   font-size: 18px;
-  color: var(--gold);
+  color: #d4af37;
+  margin: 0;
 }
 
-.error-message {
-  color: var(--red);
-  margin-bottom: 20px;
+.error-container, .template-error-container {
+  gap: 20px;
 }
 
-.error-container button {
-  padding: 10px 20px;
-  background: var(--gold);
-  color: var(--black);
+.error-message, .template-error {
+  background: rgba(0, 0, 0, 0.5);
+  padding: 30px;
+  border-radius: 10px;
+  border: 2px solid #d4af37;
+  max-width: 600px;
+}
+
+.error-message h2, .template-error h2 {
+  color: #ff6b6b;
+  margin: 0 0 15px 0;
+  font-size: 24px;
+}
+
+.error-message p, .template-error p {
+  color: #f5f5dc;
+  margin: 10px 0;
+  font-size: 16px;
+}
+
+.template-info {
+  margin: 20px 0;
+  padding: 15px;
+  background: rgba(212, 175, 55, 0.1);
+  border-radius: 5px;
+  text-align: left;
+}
+
+.template-info p {
+  margin: 5px 0;
+  font-size: 14px;
+}
+
+.template-info code {
+  background: rgba(0, 0, 0, 0.5);
+  padding: 2px 8px;
+  border-radius: 3px;
+  color: #d4af37;
+  font-family: 'Courier New', monospace;
+}
+
+.error-container button, .template-error-container button {
+  padding: 12px 30px;
+  background: #d4af37;
+  color: #000;
   border: none;
+  border-radius: 5px;
+  font-size: 16px;
+  font-weight: bold;
   cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.error-container button:hover, .template-error-container button:hover {
+  background: #f0c14b;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(212, 175, 55, 0.3);
+}
+
+.error-container button:active, .template-error-container button:active {
+  transform: translateY(0);
 }
 </style>

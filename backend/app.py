@@ -2,6 +2,9 @@
 # -*- coding: utf-8 -*-
 """
 Flask 后端：QQ群年度报告分析器线上版
+
+Licensed under AGPL-3.0: https://www.gnu.org/licenses/agpl-3.0.html
+
 正确流程：
 1. 用户上传 → 2. 临时保存 → 3. 后台分析 → 4. 删除临时文件
 5. 用户选词 → 6. AI锐评 → 7. 保存MySQL（只存关键数据） → 8. 前端动态渲染
@@ -58,10 +61,8 @@ except Exception as e:
 
 
 def generate_ai_comments(selected_word_objects: List[Dict]) -> Dict[str, str]:
-    """
-    使用OpenAI API为每个热词生成犀利的AI锐评
-    返回: {word: comment} 的字典
-    """
+    # 使用OpenAI API为每个热词生成犀利的AI锐评
+    # 返回: {word: comment} 的字典
     try:
         from image_generator import AICommentGenerator
         ai_gen = AICommentGenerator()
@@ -101,10 +102,10 @@ def allowed_file(filename):
 
 @app.route("/api/upload", methods=["POST"])
 def upload_and_analyze():
-    """
-    步骤1-4: 上传→临时保存→分析→删除临时文件
-    返回: report_id, 分析结果（热词列表供选择）
-    """
+
+    # 步骤1-4: 上传→临时保存→分析→删除临时文件
+    # 返回: report_id, 分析结果（热词列表供选择）
+
     if not db_service:
         return jsonify({"error": "数据库服务未初始化"}), 500
     
@@ -174,9 +175,9 @@ def upload_and_analyze():
 
 @app.route("/api/finalize", methods=["POST"])
 def finalize_report_endpoint():
-    """
-    步骤5-7: 用户选词 → AI锐评 → 保存MySQL
-    """
+
+    # 步骤5-7: 用户选词 → AI锐评 → 保存MySQL
+
     if not db_service:
         return jsonify({"error": "数据库服务未初始化"}), 500
     
@@ -230,10 +231,9 @@ def finalize_report_endpoint():
 
 def finalize_report(report_id: str, analyzer, selected_words: List[str], 
                    auto_mode: bool = False, report_data: Dict = None):
-    """
-    共用的报告最终化逻辑
-    步骤5-7: 选词 + AI锐评 + 保存MySQL（只存关键数据）
-    """
+
+    # 步骤5-7: 选词 + AI锐评 + 保存MySQL（只存关键数据）
+
     try:
         if report_data is None:
             report = analyzer.export_json()
@@ -314,12 +314,39 @@ def list_reports():
         return jsonify({"error": f"查询失败: {exc}"}), 500
 
 
+@app.route("/api/templates", methods=["GET"])
+def get_templates():
+    """获取可用模板列表"""
+    import json
+    templates_file = os.path.join(PROJECT_ROOT, "frontend/src/templates/templates.json")
+    
+    try:
+        with open(templates_file, 'r', encoding='utf-8') as f:
+            templates_data = json.load(f)
+            return jsonify(templates_data)
+    except Exception as e:
+        return jsonify({
+            "templates": [
+                {
+                    "id": "classic",
+                    "name": "模板1",
+                    "description": "最初的模板",
+                    "component": "classic.vue"
+                }
+            ]
+        })
+
+
 @app.route("/api/reports/<report_id>", methods=["GET"])
 @app.route("/report/<report_id>", methods=["GET"])
-def get_report(report_id):
+@app.route("/report/<template_id>/<report_id>", methods=["GET"])
+def get_report(report_id, template_id=None):
     """
     获取报告数据（返回JSON供前端动态渲染）
-    同时支持 /api/reports/{id} 和 /report/{id} 两个路径
+    支持路径：
+    - /api/reports/{id}
+    - /report/{id}  (默认classic模板)
+    - /report/{template_id}/{id}
     """
     if not db_service:
         return jsonify({"error": "数据库服务未初始化"}), 500
@@ -360,8 +387,7 @@ def process_report_data_for_frontend(report):
     使用ImageGenerator的逻辑处理报告数据为前端需要的格式
     复用image_generator.py中的_prepare_template_data方法
     """
-    # 构建一个临时的ImageGenerator实例来使用其数据处理方法
-    # 模拟json_data结构
+
     json_data = {
         'chatName': report['chat_name'],
         'messageCount': report['message_count'],
@@ -370,11 +396,11 @@ def process_report_data_for_frontend(report):
         'hourDistribution': report['statistics'].get('hourDistribution', {})
     }
     
-    # 创建ImageGenerator实例
+
     gen = ImageGenerator()
     gen.json_data = json_data
-    gen.selected_words = report['selected_words']  # 设置选中的词
-    gen.ai_comments = report.get('ai_comments', {}) or {}  # 设置AI评语
+    gen.selected_words = report['selected_words']  
+    gen.ai_comments = report.get('ai_comments', {}) or {}  
     
     # 调用其数据处理方法
     template_data = gen._prepare_template_data()
