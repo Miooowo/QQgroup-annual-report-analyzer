@@ -412,10 +412,6 @@ class ChatAnalyzer:
             if word in cfg.BLACKLIST:
                 continue
             
-            # 停用词（emoji除外）
-            if word in cfg.STOPWORDS and not is_emoji(word):
-                continue
-            
             # 单字特殊处理（采用旧版逻辑）
             if len(word) == 1:
                 if is_emoji(word):
