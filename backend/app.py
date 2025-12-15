@@ -688,11 +688,12 @@ def generate_personality_image(report_id):
         
         # 使用 playwright 生成图片（群友分析使用1000px宽度，避免触发媒体查询的单列布局）
         # 注意：页面内容宽度是900px，但视口需要>950px才能保持两列布局
+        # 使用device_scale_factor=3提高清晰度（与image_generator.py中的设置一致）
         image_data = asyncio.run(generate_image_with_playwright(
             personality_url, 
             viewport_width=1000,  # 设置为1000px，大于950px媒体查询断点，确保两列布局
             viewport_height=1200, 
-            device_scale_factor=2
+            device_scale_factor=3  # 提高到3倍，确保高清截图
         ))
         
         if not image_data:
@@ -1271,31 +1272,48 @@ async def generate_image_with_playwright(url, viewport_width=450, viewport_heigh
                 }
             """)
             
-            screenshot_height = screenshot_info.get('height', final_height)
+            # 安全获取截图高度
+            if screenshot_info and isinstance(screenshot_info, dict):
+                screenshot_height = screenshot_info.get('height', final_height if 'final_height' in locals() else viewport_height)
+            else:
+                screenshot_height = final_height if 'final_height' in locals() else viewport_height
+            
+            # 确保高度有效
+            if screenshot_height <= 0:
+                screenshot_height = viewport_height
+            if screenshot_height > 10000:  # 限制最大高度，避免过大
+                screenshot_height = 10000
+            
             print(f"   📏 精确截图高度: {screenshot_height}px")
             
             # 截图前再次检查布局
             # #region agent log
             if viewport_width >= 900:
-                final_check = await page.evaluate("""
-                    () => {
-                        const userSection = document.querySelector('.user-section');
-                        if (userSection) {
-                            const style = window.getComputedStyle(userSection);
-                            return {
-                                gridColumns: style.gridTemplateColumns,
-                                viewportWidth: window.innerWidth,
-                                containerWidth: document.querySelector('.report-container')?.offsetWidth || 0
-                            };
+                try:
+                    final_check = await page.evaluate("""
+                        () => {
+                            const userSection = document.querySelector('.user-section');
+                            if (userSection) {
+                                const style = window.getComputedStyle(userSection);
+                                return {
+                                    gridColumns: style.gridTemplateColumns,
+                                    viewportWidth: window.innerWidth,
+                                    containerWidth: document.querySelector('.report-container')?.offsetWidth || 0
+                                };
+                            }
+                            return null;
                         }
-                        return null;
-                    }
-                """)
-                debug_log('app.py:965', 'Before screenshot - final layout check', final_check, 'A')
+                    """)
+                    debug_log('app.py:965', 'Before screenshot - final layout check', final_check, 'A')
+                except:
+                    pass
             # #endregion
             
             # 设置视口高度为精确的内容高度（限制最大高度）
-            actual_screenshot_height = min(screenshot_height, 5000)
+            actual_screenshot_height = min(int(screenshot_height), 5000)
+            if actual_screenshot_height < 100:
+                actual_screenshot_height = viewport_height  # 如果太小，使用默认高度
+            
             await page.set_viewport_size({'width': viewport_width, 'height': actual_screenshot_height})
             await page.wait_for_timeout(300)
             
@@ -1304,10 +1322,20 @@ async def generate_image_with_playwright(url, viewport_width=450, viewport_heigh
             await page.wait_for_timeout(200)
             
             # 截图 - 使用full_page=False，只截取视口内容（已设置为精确高度）
-            screenshot_bytes = await page.screenshot(
-                full_page=False,  # 不使用full_page，只截取当前视口
-                type='png'
-            )
+            # 确保高质量截图
+            try:
+                screenshot_bytes = await page.screenshot(
+                    full_page=False,  # 不使用full_page，只截取当前视口
+                    type='png'
+                    # PNG格式不支持quality参数，移除它
+                )
+            except Exception as e:
+                print(f"   ⚠️ 截图失败，尝试使用full_page模式: {e}")
+                # 如果失败，回退到full_page模式
+                screenshot_bytes = await page.screenshot(
+                    full_page=True,
+                    type='png'
+                )
             
             # #region agent log
             debug_log('app.py:970', 'Screenshot taken', {'size_bytes': len(screenshot_bytes)}, 'A')
