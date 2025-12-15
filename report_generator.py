@@ -5,9 +5,6 @@ from datetime import datetime
 
 import config as cfg
 from utils import generate_time_bar, sanitize_filename
-from logger import get_logger
-
-logger = get_logger(__name__)
 
 
 class ReportGenerator:
@@ -26,19 +23,19 @@ class ReportGenerator:
     
     def print_console_report(self):
         """输出控制台简洁报告"""
-        logger.info("\n" + "=" * cfg.CONSOLE_WIDTH)
-        logger.info(f"📊 {self.chat_name} - 年度热词报告")
-        logger.info("=" * cfg.CONSOLE_WIDTH)
+        print("\n" + "=" * cfg.CONSOLE_WIDTH)
+        print(f"📊 {self.chat_name} - 年度热词报告")
+        print("=" * cfg.CONSOLE_WIDTH)
         
         # 热词Top20
-        logger.info("\n🔥 热词 Top 20:")
-        logger.info("-" * 40)
+        print("\n🔥 热词 Top 20:")
+        print("-" * 40)
         for i, (word, freq) in enumerate(self.analyzer.get_top_words(20), 1):
-            logger.info(f"  {i:>2}. {word:<15} {freq:>5}次")
+            print(f"  {i:>2}. {word:<15} {freq:>5}次")
         
         # 趣味榜单（每个只显示Top3）
-        logger.info("\n🎮 趣味榜单:")
-        logger.info("-" * 40)
+        print("\n🎮 趣味榜单:")
+        print("-" * 40)
         rankings = self.analyzer.get_fun_rankings()
         
         emojis = {
@@ -54,19 +51,19 @@ class ReportGenerator:
                 continue
             emoji = emojis.get(title, '📌')
             top1 = data[0] if data else ('无', 0)
-            logger.info(f"  {emoji} {title}: {top1[0]} ({top1[1]})")
+            print(f"  {emoji} {title}: {top1[0]} ({top1[1]})")
         
         # 时段分布
-        logger.info("\n⏰ 活跃时段分布:")
-        logger.info("-" * 40)
+        print("\n⏰ 活跃时段分布:")
+        print("-" * 40)
         hour_data = self.analyzer.hour_distribution
         if hour_data:
             peak_hour = max(hour_data, key=hour_data.get)
-            logger.info(f"  最活跃时段: {peak_hour}:00 - {peak_hour+1}:00")
+            print(f"  最活跃时段: {peak_hour}:00 - {peak_hour+1}:00")
         
-        logger.info("\n" + "=" * cfg.CONSOLE_WIDTH)
-        logger.info("💡 详细报告已保存到文件")
-        logger.info("=" * cfg.CONSOLE_WIDTH)
+        print("\n" + "=" * cfg.CONSOLE_WIDTH)
+        print("💡 详细报告已保存到文件")
+        print("=" * cfg.CONSOLE_WIDTH)
     
     def generate_file_report(self):
         """生成详细文件报告"""
@@ -179,5 +176,5 @@ class ReportGenerator:
         with open(output_file, 'w', encoding=cfg.OUTPUT_ENCODING) as f:
             f.write('\n'.join(lines))
         
-        logger.info(f"\n📄 报告已保存: {output_file}")
+        print(f"\n📄 报告已保存: {output_file}")
         return output_file

@@ -10,27 +10,20 @@ from utils import (
     extract_emojis,
     is_emoji,
     parse_timestamp,
-    parse_datetime,
     clean_text,
     calculate_entropy,
     analyze_single_chars,
+    MEANINGLESS_SYMBOLS,
 )
-from logger import get_logger, init_logging
-
-init_logging()
+from tokenizer_wrapper import TokenizerWrapper
 
 jieba.setLogLevel(jieba.logging.INFO)
-
-logger = get_logger('analyzer')
 
 class ChatAnalyzer:
     def __init__(self, data):
         self.data = data
         self.messages = data.get('messages', [])
         self.chat_name = data.get('chatName', data.get('chatInfo', {}).get('name', '未知群聊'))
-        
-        # 应用时间范围过滤
-        self._filter_messages_by_time()
         self.uin_to_name = {}
         self.msgid_to_sender = {}
         self.word_freq = Counter()
@@ -55,72 +48,20 @@ class ChatAnalyzer:
         self.merged_words = {}
         self.single_char_stats = {}  # 单字统计
         self.cleaned_texts = []  # 缓存清洗后的文本
+        # 初始化分词器
+        tokenizer_type = getattr(cfg, 'TOKENIZER_TYPE', 'jieba')
+        model_path = getattr(cfg, 'SP_MODEL_PATH', None) or getattr(cfg, 'PKUSEG_MODEL', None)
+        use_hmm = getattr(cfg, 'JIEBA_USE_HMM', True)
+        use_paddle = getattr(cfg, 'JIEBA_USE_PADDLE', False)
+        custom_dict_files = getattr(cfg, 'CUSTOM_DICT_FILES', [])
+        self.tokenizer = TokenizerWrapper(
+            tokenizer_type=tokenizer_type, 
+            model_path=model_path,
+            use_hmm=use_hmm,
+            use_paddle=use_paddle,
+            custom_dict_files=custom_dict_files
+        )
         self._build_mappings()
-    
-    def _filter_messages_by_time(self):
-        """根据配置的时间范围过滤消息"""
-        if cfg.MESSAGE_START_DATE is None and cfg.MESSAGE_END_DATE is None:
-            return  # 无时间限制，不过滤
-        
-        from datetime import datetime
-        
-        # 解析配置的日期
-        start_dt = None
-        end_dt = None
-        
-        if cfg.MESSAGE_START_DATE:
-            try:
-                start_dt = datetime.strptime(cfg.MESSAGE_START_DATE, '%Y-%m-%d')
-                start_dt = start_dt.replace(hour=0, minute=0, second=0, microsecond=0)
-                # 转换为东八区
-                from datetime import timezone, timedelta
-                start_dt = start_dt.replace(tzinfo=timezone(timedelta(hours=8)))
-            except Exception as e:
-                logger.warning(f"起始日期格式错误: {cfg.MESSAGE_START_DATE}, 错误: {e}")
-        
-        if cfg.MESSAGE_END_DATE:
-            try:
-                end_dt = datetime.strptime(cfg.MESSAGE_END_DATE, '%Y-%m-%d')
-                end_dt = end_dt.replace(hour=23, minute=59, second=59, microsecond=999999)
-                # 转换为东八区
-                from datetime import timezone, timedelta
-                end_dt = end_dt.replace(tzinfo=timezone(timedelta(hours=8)))
-            except Exception as e:
-                logger.warning(f"结束日期格式错误: {cfg.MESSAGE_END_DATE}, 错误: {e}")
-        
-        if start_dt is None and end_dt is None:
-            return  # 日期解析失败，不过滤
-        
-        # 过滤消息
-        original_count = len(self.messages)
-        filtered_messages = []
-        
-        for msg in self.messages:
-            timestamp = msg.get('timestamp', '')
-            msg_dt = parse_datetime(timestamp)
-            
-            if msg_dt is None:
-                continue 
-            
-            # 检查是否在时间范围内
-            if start_dt and msg_dt < start_dt:
-                continue
-            if end_dt and msg_dt > end_dt:
-                continue
-            
-            filtered_messages.append(msg)
-        
-        self.messages = filtered_messages
-        filtered_count = len(self.messages)
-        
-        if start_dt or end_dt:
-            time_range = []
-            if start_dt:
-                time_range.append(f"从 {cfg.MESSAGE_START_DATE}")
-            if end_dt:
-                time_range.append(f"到 {cfg.MESSAGE_END_DATE}")
-            logger.info(f"⏰ 时间范围过滤: {' '.join(time_range)}")
-            logger.info(f"   原始消息: {original_count} 条, 过滤后: {filtered_count} 条")
 
     def _is_bot_message(self, msg):
         """判断是否为机器人消息（基于 subMsgType）"""
@@ -130,22 +71,74 @@ class ChatAnalyzer:
         raw_msg = msg.get('rawMessage', {})
         sub_msg_type = raw_msg.get('subMsgType', 0)
         return sub_msg_type in [577, 65]
+    
+    def _should_filter_user(self, msg):
+        """判断是否应该过滤该用户的消息"""
+        sender = msg.get('sender', {})
+        name = sender.get('name', '').strip()
+        uin = sender.get('uin', '')
+        
+        # 检查用户名是否在过滤列表中
+        if name:
+            for filtered_name in cfg.FILTERED_USERS:
+                if filtered_name in name:
+                    return True
+        
+        # 检查 sendMemberName
+        raw_msg = msg.get('rawMessage', {})
+        send_member_name = raw_msg.get('sendMemberName', '').strip()
+        if send_member_name:
+            for filtered_name in cfg.FILTERED_USERS:
+                if filtered_name in send_member_name:
+                    return True
+        
+        # 检查 uin_to_name 映射中的名称
+        if uin and uin in self.uin_to_name:
+            mapped_name = self.uin_to_name[uin]
+            for filtered_name in cfg.FILTERED_USERS:
+                if filtered_name in mapped_name:
+                    return True
+        
+        return False
 
     def _build_mappings(self):
-        # 构建 uin 到 name 的映射，优先保留有效的 name
+        """构建 uin 到 name 的映射，优先保留有效的 name"""
         # 先收集每个 uin 的所有 name（按顺序）和 sendMemberName
         uin_names = defaultdict(list)
         uin_member_names = {}  # 存储最后的 sendMemberName
         
         for msg in self.messages:
+            # 跳过机器人消息
             if self._is_bot_message(msg):
                 continue
             
+            # 跳过被过滤的用户（在构建映射时也要过滤，避免将过滤用户加入映射）
+            # 注意：这里需要先检查 sender.name，因为 uin_to_name 映射还未构建完成
             sender = msg.get('sender', {})
-            uin = sender.get('uin')
             name = sender.get('name', '').strip()
+            raw_msg = msg.get('rawMessage', {})
+            send_member_name = raw_msg.get('sendMemberName', '').strip()
+            
+            # 简单检查用户名是否包含过滤关键词
+            should_filter = False
+            if name:
+                for filtered_name in cfg.FILTERED_USERS:
+                    if filtered_name in name:
+                        should_filter = True
+                        break
+            if not should_filter and send_member_name:
+                for filtered_name in cfg.FILTERED_USERS:
+                    if filtered_name in send_member_name:
+                        should_filter = True
+                        break
+            
+            if should_filter:
+                continue
+            
+            uin = sender.get('uin')
             msg_id = msg.get('messageId')
             
+            # 收集 name
             if uin and name:
                 # 只在 name 与上一个不同时添加
                 if not uin_names[uin] or uin_names[uin][-1] != name:
@@ -182,33 +175,95 @@ class ChatAnalyzer:
 
     def get_name(self, uin):
         return self.uin_to_name.get(uin, f"未知用户({uin})")
+    
+    def _is_id_like_string(self, word):
+        """判断是否为ID类字符串（图片ID、消息ID等）"""
+        if not word:
+            return False
+        
+        # 长度检查：ID通常在3-20个字符之间（包括短ID如7R%D8、0ED3V）
+        if len(word) < 3 or len(word) > 20:
+            return False
+        
+        # 如果包含特殊字符（如%、_、-、}、]等），很可能是ID
+        if re.search(r'[%_\-}\]]', word):
+            return True
+        
+        # 必须是字母数字组合（不包含中文、标点等）
+        if not re.match(r'^[a-zA-Z0-9]+$', word):
+            return False
+        
+        # 必须包含至少一个字母和一个数字
+        has_letter = bool(re.search(r'[a-zA-Z]', word))
+        has_digit = bool(re.search(r'[0-9]', word))
+        
+        if not (has_letter and has_digit):
+            return False
+        
+        # 对于短字符串（3-5个字符），如果字母数字混合，很可能是ID
+        if len(word) <= 5:
+            # 如果全是数字或全是字母，不是ID
+            if re.match(r'^[0-9]+$', word) or re.match(r'^[a-zA-Z]+$', word):
+                return False
+            # 字母数字混合的短字符串，很可能是ID
+            return True
+        
+        # 对于长字符串（6-20个字符），字母数量应该占多数（至少50%）
+        letter_count = len(re.findall(r'[a-zA-Z]', word))
+        if letter_count < len(word) * 0.5:
+            return False
+        
+        # 排除常见的英文单词（长度在6-20之间的常见词）
+        # 这里可以添加更多常见词，但为了性能，只检查一些明显的
+        common_words = {'password', 'username', 'account', 'message', 'picture', 'image'}
+        if word.lower() in common_words:
+            return False
+        
+        return True
 
     def analyze(self):
-        logger.info(f"📊 开始分析: {self.chat_name}")
-        logger.info(f"📝 消息总数: {len(self.messages)}")
+        print(f"📊 开始分析: {self.chat_name}")
+        print(f"📝 消息数: {len(self.messages)}")
+        print("=" * cfg.CONSOLE_WIDTH)
         
-        logger.info("🧹 预处理文本...")
+        print("\n🧹 预处理文本...")
         self._preprocess_texts()
         
-        logger.info("🔤 分析单字独立性...")
+        # 如果使用subword分词器且没有模型，尝试从数据训练
+        if (self.tokenizer.tokenizer_type == 'subword' and 
+            not self.tokenizer.sp_model and 
+            len(self.cleaned_texts) > 100):
+            print("🔧 训练SentencePiece模型...")
+            from tokenizer_wrapper import create_subword_tokenizer_from_data
+            vocab_size = getattr(cfg, 'SP_VOCAB_SIZE', 8000)
+            # 使用部分数据训练（避免太慢）
+            train_texts = self.cleaned_texts[:min(10000, len(self.cleaned_texts))]
+            new_tokenizer = create_subword_tokenizer_from_data(
+                train_texts, 
+                vocab_size=vocab_size
+            )
+            if new_tokenizer:
+                self.tokenizer = new_tokenizer
+        
+        print("🔤 分析单字独立性...")
         self.single_char_stats = analyze_single_chars(self.cleaned_texts)
         
-        logger.info("🔍 新词发现...")
+        print("🔍 新词发现...")
         self._discover_new_words()
         
-        logger.info("🔗 词组合并...")
+        print("🔗 词组合并...")
         self._merge_word_pairs()
         
-        logger.info("📈 分词统计...")
+        print("📈 分词统计...")
         self._tokenize_and_count()
         
-        logger.info("🎮 趣味统计...")
+        print("🎮 趣味统计...")
         self._fun_statistics()
         
-        logger.info("🧹 过滤整理...")
+        print("🧹 过滤整理...")
         self._filter_results()
         
-        logger.info("✅ 分析完成!")
+        print("\n✅ 完成!")
 
     def _preprocess_texts(self):
         """预处理所有文本"""
@@ -217,6 +272,11 @@ class ChatAnalyzer:
         for msg in self.messages:
             # 跳过机器人消息
             if self._is_bot_message(msg):
+                bot_filtered += 1
+                continue
+            
+            # 跳过被过滤的用户
+            if self._should_filter_user(msg):
                 bot_filtered += 1
                 continue
             
@@ -229,9 +289,9 @@ class ChatAnalyzer:
                 skipped += 1
         
         if cfg.FILTER_BOT_MESSAGES and bot_filtered > 0:
-            logger.debug(f"有效文本: {len(self.cleaned_texts)} 条, 跳过: {skipped} 条, 过滤机器人: {bot_filtered} 条")
+            print(f"   有效文本: {len(self.cleaned_texts)} 条, 跳过: {skipped} 条, 过滤机器人: {bot_filtered} 条")
         else:
-            logger.debug(f"有效文本: {len(self.cleaned_texts)} 条, 跳过: {skipped} 条")
+            print(f"   有效文本: {len(self.cleaned_texts)} 条, 跳过: {skipped} 条")
 
     def _discover_new_words(self):
         """新词发现"""
@@ -241,6 +301,7 @@ class ChatAnalyzer:
         total_chars = 0
         
         for text in self.cleaned_texts:
+            # 按标点分句
             sentences = re.split(r'[，。！？、；：""''（）\s\n\r,\.!?\(\)]', text)
             for sentence in sentences:
                 sentence = sentence.strip()
@@ -251,8 +312,8 @@ class ChatAnalyzer:
                 for n in range(2, min(6, len(sentence) + 1)):
                     for i in range(len(sentence) - n + 1):
                         ngram = sentence[i:i+n]
-                        # 只跳过纯空格
-                        if not ngram.strip():
+                        # 跳过纯数字/符号/纯英文
+                        if re.match(r'^[\d\s\W]+$', ngram) or re.match(r'^[a-zA-Z]+$', ngram):
                             continue
                         ngram_freq[ngram] += 1
                         if i > 0:
@@ -264,6 +325,7 @@ class ChatAnalyzer:
                         else:
                             right_neighbors[ngram]['<EOS>'] += 1
         
+        # 筛选新词
         for word, freq in ngram_freq.items():
             if freq < cfg.NEW_WORD_MIN_FREQ:
                 continue
@@ -275,7 +337,7 @@ class ChatAnalyzer:
             if min_ent < cfg.ENTROPY_THRESHOLD:
                 continue
             
-            # PMI
+            # PMI（内部凝聚度）
             min_pmi = float('inf')
             for i in range(1, len(word)):
                 left_freq = ngram_freq.get(word[:i], 0)
@@ -292,17 +354,19 @@ class ChatAnalyzer:
             
             self.discovered_words.add(word)
         
+        # 添加到分词器词典
         for word in self.discovered_words:
-            jieba.add_word(word, freq=1000)
+            self.tokenizer.add_word(word, freq=1000)
         
-        logger.debug(f"发现 {len(self.discovered_words)} 个新词")
+        print(f"   发现 {len(self.discovered_words)} 个新词")
 
     def _merge_word_pairs(self):
+        """词组合并"""
         bigram_counter = Counter()
         word_right_counter = Counter()
         
         for text in self.cleaned_texts:
-            words = [w for w in jieba.cut(text) if w.strip()]
+            words = [w for w in self.tokenizer.cut(text) if w.strip()]
             for i in range(len(words) - 1):
                 w1, w2 = words[i].strip(), words[i+1].strip()
                 if not w1 or not w2:
@@ -312,6 +376,7 @@ class ChatAnalyzer:
                 bigram_counter[(w1, w2)] += 1
                 word_right_counter[w1] += 1
         
+        # 找出应该合并的词对
         for (w1, w2), count in bigram_counter.items():
             merged = w1 + w2
             if len(merged) > cfg.MERGE_MAX_LEN:
@@ -324,18 +389,25 @@ class ChatAnalyzer:
                 prob = count / word_right_counter[w1]
                 if prob >= cfg.MERGE_MIN_PROB:
                     self.merged_words[merged] = (w1, w2, count, prob)
-                    jieba.add_word(merged, freq=count * 1000)
+                    self.tokenizer.add_word(merged, freq=count * 1000)
         
-        logger.debug(f"合并 {len(self.merged_words)} 个词组")
+        print(f"   合并 {len(self.merged_words)} 个词组")
         
+        # 显示前几个
         if self.merged_words:
             sorted_merges = sorted(self.merged_words.items(), key=lambda x: -x[1][2])[:10]
             for merged, (w1, w2, cnt, prob) in sorted_merges:
-                logger.debug(f"  {merged}: {w1}+{w2} ({cnt}次, {prob:.0%})")
+                print(f"      {merged}: {w1}+{w2} ({cnt}次, {prob:.0%})")
 
     def _tokenize_and_count(self):
+        """分词统计"""
         for idx, msg in enumerate(self.messages):
+            # 跳过机器人消息
             if self._is_bot_message(msg):
+                continue
+            
+            # 跳过被过滤的用户
+            if self._should_filter_user(msg):
                 continue
             
             sender_uin = msg.get('sender', {}).get('uin')
@@ -347,7 +419,7 @@ class ChatAnalyzer:
             if not cleaned:
                 continue
             
-            words = list(jieba.cut(cleaned))
+            words = list(self.tokenizer.cut(cleaned))
             emojis = extract_emojis(cleaned)
             words = [w for w in words if not is_emoji(w)]  # 新增：从words中去掉emoji
             all_tokens = words + emojis
@@ -357,23 +429,57 @@ class ChatAnalyzer:
                 if not word:
                     continue
                 
+                # 跳过纯数字/符号
+                if re.match(r'^[\d\W]+$', word) and not is_emoji(word):
+                    continue
+                
+                # 过滤包含特殊字符的字符串（如7R%D8、包含%、_、-、}、]等）
+                # 这些通常是图片ID、消息ID等无意义标识符
+                if re.search(r'[%_\-}\]]', word) and not re.search(r'[\u4e00-\u9fff]', word):
+                    # 如果包含特殊字符且没有中文，很可能是ID
+                    continue
+                
+                # 过滤无意义符号词汇（如⌒、☆、★等）
+                # 如果词只包含无意义符号，跳过
+                if all(c in MEANINGLESS_SYMBOLS for c in word):
+                    continue
+                # 如果词包含无意义符号且没有其他有意义字符，跳过
+                if word and all(c in MEANINGLESS_SYMBOLS or c in string.punctuation or c in '，。！？；：、""''（）【】' or c.isspace() for c in word):
+                    continue
+                
+                # 过滤ID类字符串（图片ID、消息ID等）
+                # 匹配：3-20个字符，主要是字母数字组合，包括短ID如7R%D8、0ED3V
+                if self._is_id_like_string(word):
+                    continue
+                
                 # 提前过滤黑名单（性能优化：避免统计后再过滤）
                 if word in cfg.BLACKLIST:
+                    continue
+                
+                # 过滤虚词（不计入统计）
+                if word in cfg.FUNCTION_WORDS:
                     continue
                 
                 self.word_freq[word] += 1
                 if sender_uin:
                     self.word_contributors[word][sender_uin] += 1
                 if len(self.word_samples[word]) < cfg.SAMPLE_COUNT * 3:
-                    self.word_samples[word].append(cleaned)
+                    # 只收集有意义的样本（过滤掉只包含图片标记、ID等的无意义内容）
+                    if self._is_meaningful_sample(cleaned):
+                        self.word_samples[word].append(cleaned)
 
     def _fun_statistics(self):
         """趣味统计"""
-        prev_clean = None  
+        prev_clean = None  # 改用清理后文本
         prev_sender = None
         
         for msg in self.messages:
+            # 跳过机器人消息
             if self._is_bot_message(msg):
+                continue
+            
+            # 跳过被过滤的用户
+            if self._should_filter_user(msg):
                 continue
             
             sender_uin = msg.get('sender', {}).get('uin')
@@ -459,27 +565,40 @@ class ChatAnalyzer:
         filtered_freq = Counter()
         
         for word, freq in self.word_freq.items():
+            # 长度过滤
             if len(word) < cfg.MIN_WORD_LEN or len(word) > cfg.MAX_WORD_LEN:
                 continue
             if freq < cfg.MIN_FREQ:
                 continue
             
+            # 白名单直接通过
             if word in cfg.WHITELIST:
                 filtered_freq[word] = freq
                 continue
             
+            # 黑名单跳过
             if word in cfg.BLACKLIST:
                 continue
             
-            # 单字特殊处理
+            # 虚词过滤（不计入统计）
+            if word in cfg.FUNCTION_WORDS:
+                continue
+            
+            # 过滤包含特殊字符的字符串（如7R%D8、包含%、_、-、}、]等）
+            # 这些通常是图片ID、消息ID等无意义标识符
+            if re.search(r'[%_\-}\]]', word) and not re.search(r'[\u4e00-\u9fff]', word):
+                # 如果包含特殊字符且没有中文，很可能是ID
+                continue
+            
+            # 过滤ID类字符串（图片ID、消息ID等）
+            if self._is_id_like_string(word):
+                continue
+            
+            # 单字特殊处理（采用旧版逻辑）
             if len(word) == 1:
                 if is_emoji(word):
                     pass  # emoji保留
                 else:
-                    # 单个符号跳过（但数字/字母走单字统计）
-                    if word in string.punctuation or word in '，。！？；：、""''（）【】':
-                        continue
-                    # 其他单字（数字/字母/汉字）走独立性检查
                     stats = self.single_char_stats.get(word)
                     if stats:
                         total, indep, ratio = stats
@@ -487,30 +606,110 @@ class ChatAnalyzer:
                             continue
                     else:
                         continue
-                        
+            
+            # 纯数字跳过
+            if re.match(r'^[\d\s]+$', word):
+                continue
+            
+            # 纯标点跳过
+            if all(c in string.punctuation or c in '，。！？；：、""''（）【】' for c in word):
+                continue
+            
+            # 过滤无意义符号词汇（如⌒、☆、★等）
+            # 如果词只包含无意义符号，跳过
+            if all(c in MEANINGLESS_SYMBOLS for c in word):
+                continue
+            # 如果词包含无意义符号且没有其他有意义字符，跳过
+            if word and all(c in MEANINGLESS_SYMBOLS or c in string.punctuation or c in '，。！？；：、""''（）【】' or c.isspace() for c in word):
+                continue
+            
             filtered_freq[word] = freq
         
         self.word_freq = filtered_freq
         
-        # 采样
-        for word in self.word_samples:
+        # 采样并过滤无意义样本
+        for word in list(self.word_samples.keys()):
             samples = self.word_samples[word]
-            if len(samples) > cfg.SAMPLE_COUNT:
-                self.word_samples[word] = random.sample(samples, cfg.SAMPLE_COUNT)
+            # 过滤无意义样本
+            meaningful_samples = [s for s in samples if self._is_meaningful_sample(s)]
+            if len(meaningful_samples) > cfg.SAMPLE_COUNT:
+                self.word_samples[word] = random.sample(meaningful_samples, cfg.SAMPLE_COUNT)
+            else:
+                self.word_samples[word] = meaningful_samples
         
-        logger.debug(f"过滤后 {len(self.word_freq)} 个词")
+        print(f"   过滤后 {len(self.word_freq)} 个词")
 
     def get_top_words(self, n=None):
         n = n or cfg.TOP_N
         return self.word_freq.most_common(n)
 
+    def _is_filtered_user_by_uin(self, uin):
+        """根据uin判断用户是否应该被过滤"""
+        if not uin:
+            return False
+        # 检查映射中的名称
+        if uin in self.uin_to_name:
+            name = self.uin_to_name[uin]
+            for filtered_name in cfg.FILTERED_USERS:
+                if filtered_name in name:
+                    return True
+        return False
+    
+    def _is_meaningful_sample(self, text):
+        """判断样本是否有意义（过滤掉只包含图片标记、ID等的无意义内容）"""
+        if not text or len(text.strip()) < 2:
+            return False
+        
+        # 去除空白后检查
+        text_clean = text.strip()
+        
+        # 再次清理图片标记（确保彻底清理）
+        text_clean = re.sub(r'\[图片[^\]]*\]', '', text_clean, flags=re.IGNORECASE)
+        text_clean = re.sub(r'\[图片[^\[\]]*', '', text_clean, flags=re.IGNORECASE)
+        text_clean = re.sub(r'[A-Z0-9]+`[A-Z0-9]+', '', text_clean)  # 去除图片ID格式
+        text_clean = text_clean.strip()
+        
+        # 如果清理后为空，认为无意义
+        if not text_clean:
+            return False
+        
+        # 如果只包含图片标记、ID等，认为无意义
+        # 检查是否只包含类似图片ID的字符串（字母数字+特殊字符）
+        if re.match(r'^[A-Z0-9`\-_\s]+$', text_clean):
+            return False
+        
+        # 检查是否包含图片标记残留
+        if '[图片' in text_clean.lower() or '图片:' in text_clean.lower():
+            return False
+        
+        # 检查是否只包含方括号内容
+        text_no_brackets = re.sub(r'\[[^\]]*\]', '', text_clean)
+        if not text_no_brackets.strip():
+            return False
+        
+        # 检查是否包含至少一个中文字符或常见标点
+        if not re.search(r'[\u4e00-\u9fff，。！？、；：""''（）]', text_clean):
+            # 如果没有中文，至少要有一些有意义的英文单词（长度>=2）
+            words = re.findall(r'[a-zA-Z]{2,}', text_clean)
+            if len(words) == 0:
+                return False
+        
+        return True
+    
     def get_word_detail(self, word):
+        # 过滤掉被过滤用户的贡献者
+        filtered_contributors = [
+            (self.get_name(uin), count)
+            for uin, count in self.word_contributors[word].most_common(cfg.CONTRIBUTOR_TOP_N * 2)
+            if not self._is_filtered_user_by_uin(uin)
+        ][:cfg.CONTRIBUTOR_TOP_N]  # 取前N个
+        
         return {
             'word': word,
             'freq': self.word_freq.get(word, 0),
-            'samples': self.word_samples.get(word, []),
-            'contributors': [(self.get_name(uin), count) 
-                           for uin, count in self.word_contributors[word].most_common(cfg.CONTRIBUTOR_TOP_N)]
+            'samples': [s for s in self.word_samples.get(word, []) 
+                       if self._is_meaningful_sample(s)],
+            'contributors': filtered_contributors
         }
 
     def get_fun_rankings(self):
@@ -554,9 +753,11 @@ class ChatAnalyzer:
                             'uin': uin,
                             'count': count
                         }
-                        for uin, count in self.word_contributors[word].most_common(cfg.CONTRIBUTOR_TOP_N)
-                    ],
-                    'samples': self.word_samples.get(word, [])[:cfg.SAMPLE_COUNT]
+                        for uin, count in self.word_contributors[word].most_common(cfg.CONTRIBUTOR_TOP_N * 2)
+                        if not self._is_filtered_user_by_uin(uin)
+                    ][:cfg.CONTRIBUTOR_TOP_N],  # 过滤后取前N个
+                    'samples': [s for s in self.word_samples.get(word, [])[:cfg.SAMPLE_COUNT * 2]
+                               if self._is_meaningful_sample(s)][:cfg.SAMPLE_COUNT]
                 }
                 for word, freq in self.get_top_words()
             ],
@@ -594,3 +795,131 @@ class ChatAnalyzer:
         result['rankings']['复读机'] = fmt_with_uin(self.user_repeat_count)
         
         return result
+    
+    def get_user_representative_words(self, top_n_users=10, words_per_user=5):
+        """
+        获取每个用户的代表性词汇
+        
+        Args:
+            top_n_users: 选择前N个活跃用户
+            words_per_user: 每个用户选择N个代表性词汇
+            
+        Returns:
+            List[Dict]: 每个用户的信息，包含name, uin, words(代表性词汇列表), stats(统计数据)
+        """
+        # 从word_contributors反向统计每个用户使用的词汇
+        user_word_freq = defaultdict(Counter)  # {uin: {word: count}}
+        
+        for word, contributors in self.word_contributors.items():
+            # 跳过无意义词
+            if word in cfg.FUNCTION_WORDS or word in cfg.BLACKLIST:
+                continue
+            # 跳过单字（除非是emoji）
+            if len(word) == 1 and not is_emoji(word):
+                continue
+            
+            # 过滤字母数字组合（如5C、VXA等）
+            if re.match(r'^[a-zA-Z0-9]+$', word) and len(word) <= 5:
+                # 如果只包含字母和数字，且长度较短，很可能是无意义的ID或代码
+                # 但保留较长的有意义组合（如"iPhone"等）
+                if not any(c.isalpha() and c.islower() for c in word):
+                    # 如果全是大写字母和数字，很可能是无意义的
+                    continue
+            
+            # 过滤特殊符号（如⌒、☆等）
+            if re.match(r'^[^\u4e00-\u9fff\w\s]+$', word):
+                # 只包含特殊符号，没有中文、英文、数字
+                continue
+            
+            # 过滤纯符号组合（使用统一的MEANINGLESS_SYMBOLS）
+            if all(c in MEANINGLESS_SYMBOLS for c in word):
+                continue
+            
+            for uin, count in contributors.items():
+                # 跳过被过滤的用户
+                if self._is_filtered_user_by_uin(uin):
+                    continue
+                user_word_freq[uin][word] += count
+        
+        # 选择最活跃的top_n_users个用户（按消息数）
+        top_users = [uin for uin, _ in self.user_msg_count.most_common(top_n_users * 2)]
+        # 过滤掉被过滤的用户
+        top_users = [uin for uin in top_users if not self._is_filtered_user_by_uin(uin)][:top_n_users]
+        
+        result = []
+        for uin in top_users:
+            user_words = user_word_freq.get(uin, Counter())
+            if not user_words:
+                continue
+            
+            # 选择每个用户最有代表性的words_per_user个词
+            # 优先选择：1. 频率高 2. 不是无意义词 3. 有实际意义
+            selected_words = []
+            for word, count in user_words.most_common(words_per_user * 5):
+                # 再次过滤无意义词
+                if word in cfg.FUNCTION_WORDS or word in cfg.BLACKLIST:
+                    continue
+                # 跳过单字（除非是emoji）
+                if len(word) == 1 and not is_emoji(word):
+                    continue
+                # 跳过纯数字/符号
+                if re.match(r'^[\d\W]+$', word) and not is_emoji(word):
+                    continue
+                
+                # 过滤字母数字组合（如5C、VXA等）
+                if re.match(r'^[a-zA-Z0-9]+$', word) and len(word) <= 5:
+                    # 如果只包含字母和数字，且长度较短，很可能是无意义的ID或代码
+                    # 但保留较长的有意义组合（如"iPhone"等）
+                    if not any(c.isalpha() and c.islower() for c in word):
+                        # 如果全是大写字母和数字，很可能是无意义的
+                        continue
+                
+                # 过滤特殊符号（如⌒、☆等）
+                if re.match(r'^[^\u4e00-\u9fff\w\s]+$', word):
+                    # 只包含特殊符号，没有中文、英文、数字
+                    continue
+                
+                # 过滤纯符号组合（使用统一的MEANINGLESS_SYMBOLS）
+                if all(c in MEANINGLESS_SYMBOLS for c in word):
+                    continue
+                
+                selected_words.append({
+                    'word': word,
+                    'count': count
+                })
+                if len(selected_words) >= words_per_user:
+                    break
+            
+            if not selected_words:
+                continue
+            
+            # 获取用户统计数据
+            user_stats = {
+                'message_count': self.user_msg_count.get(uin, 0),
+                'char_count': self.user_char_count.get(uin, 0),
+                'avg_chars_per_msg': self.user_char_per_msg.get(uin, 0)
+            }
+            
+            result.append({
+                'name': self.get_name(uin),
+                'uin': uin,
+                'words': selected_words,
+                'stats': user_stats
+            })
+        
+        return result
+    
+    def _is_filtered_user_by_uin(self, uin):
+        """根据uin判断用户是否被过滤"""
+        if not uin:
+            return True
+        
+        name = self.uin_to_name.get(uin, '')
+        if not name:
+            return False
+        
+        for filtered_name in cfg.FILTERED_USERS:
+            if filtered_name in name:
+                return True
+        
+        return False

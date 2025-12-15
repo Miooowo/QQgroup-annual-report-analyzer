@@ -269,6 +269,9 @@ OPENAI_MODEL=gpt-3.5-turbo
 QQgroup-annual-report-analyzer/
 ├── start.bat              # 一键启动脚本
 ├── README.md              # 本文档
+├── docs/                  # 知识库文档
+│   └── knowledge_base/    # 知识库
+│       └── gwen.md       # 格温mod注解
 ├── config.example.py      # 命令行模式配置模板
 ├── main.py                # 命令行模式入口
 ├── requirements.txt       # Python 依赖（命令行模式）

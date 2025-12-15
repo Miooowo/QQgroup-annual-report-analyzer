@@ -150,7 +150,7 @@ if not exist "node_modules" (
 cd ..
 echo ✅ 前端依赖就绪
 
-:: 检查存储模式并初始化（自动检测是否已初始化）
+:: 检查存储模式并初始化
 echo.
 echo [8/9] 初始化存储...
 findstr /C:"STORAGE_MODE=mysql" backend\.env >nul 2>&1
@@ -161,7 +161,8 @@ if errorlevel 1 (
     echo 检测到MySQL存储模式
     echo ⚠️  请确保MySQL服务已启动！
     echo.
-    echo 正在检测并初始化MySQL数据库（如需强制重置，请手动运行 "python backend/init_db.py --force"）...
+    echo 按任意键继续初始化MySQL数据库，或Ctrl+C取消...
+    pause >nul
     python backend\init_db.py
     if errorlevel 1 (
         echo.
@@ -172,10 +173,10 @@ if errorlevel 1 (
         echo    2. backend\.env 中的数据库配置是否正确
         echo    3. MySQL用户是否有创建数据库的权限
         echo.
-        pause
-        exit /b 1
+        powershell -Command "(gc backend\.env) -replace 'STORAGE_MODE=mysql', 'STORAGE_MODE=json' | Out-File -encoding ASCII backend\.env"
+        echo ✅ 已切换到JSON存储模式
     ) else (
-        echo ✅ MySQL数据库初始化完成或已存在，无需重置
+        echo ✅ MySQL数据库初始化完成
     )
 )
 
@@ -184,33 +185,9 @@ echo.
 echo [9/9] 启动服务...
 echo 正在启动后端服务...
 start "QQ群年度报告-后端" cmd /k "cd /d %CD% && venv\Scripts\activate.bat && python backend\app.py"
+timeout /t 3 /nobreak >nul
+echo ✅ 后端服务已启动（端口：5000）
 
-:: 等待后端完全启动（健康检查）
-echo 等待后端服务就绪...
-set RETRY_COUNT=0
-set MAX_RETRIES=30
-
-:wait_backend
-set /a RETRY_COUNT+=1
-if %RETRY_COUNT% gtr %MAX_RETRIES% (
-    echo.
-    echo ⚠️  警告：后端服务启动超时（已等待30秒）
-    echo    前端可能会出现连接错误
-    echo    请检查后端窗口是否有错误信息
-    echo.
-    goto start_frontend
-)
-
-:: 使用PowerShell检查后端健康状态（兼容性更好）
-powershell -Command "try { $response = Invoke-WebRequest -Uri 'http://localhost:5000/api/health' -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop; exit 0 } catch { exit 1 }" >nul 2>&1
-if errorlevel 1 (
-    timeout /t 1 /nobreak >nul
-    goto wait_backend
-)
-
-echo ✅ 后端服务已就绪（端口：5000）
-
-:start_frontend
 :: 启动前端
 echo 正在启动前端服务...
 start "QQ群年度报告-前端" cmd /k "cd /d %CD%\frontend && npm run dev"

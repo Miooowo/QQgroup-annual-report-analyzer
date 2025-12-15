@@ -5,6 +5,11 @@
       <Report />
     </div>
     
+    <!-- 群友分析页面 -->
+    <div v-else-if="isPersonalityPage">
+      <Personality />
+    </div>
+    
     <!-- 主应用页面 -->
     <div v-else>
       <!-- 标签页切换 -->
@@ -28,41 +33,8 @@
       <!-- 步骤1: 上传文件 -->
       <div v-if="step === 1" class="card">
         <h2>QQ群年度报告分析器</h2>
-        <p>上传 <a href="https://github.com/shuakami/qq-chat-exporter">qq-chat-exporter</a> 导出的 JSON，系统将自动分析并生成年度报告</p>
+        <p>上传 qq-chat-exporter 导出的 JSON，系统将自动分析并生成年度报告</p>
         
-        <!-- 重要提示 -->
-        <div class="notice-box">
-          <h3>⚠️ 重要提示</h3>
-          <ul>
-            <li><strong>开发中项目：</strong>本项目仍在开发阶段，可能会出现未知错误或不稳定情况。</li>
-            <li><strong>演示站点限制：</strong>本站点仅供演示使用，设有较严格的限流设置。为获得更好体验，推荐前往 <a href="https://github.com/ZiHuixi/QQgroup-annual-report-analyzer" target="_blank">GitHub 仓库</a> 自行部署，或搭建类似网站供他人使用。</li>
-            <li><strong>数据安全提醒：</strong>虽然本项目采用 AGPL-3.0 开源协议，但上传的聊天记录属于敏感数据，仍存在一定泄露风险。请根据实际情况谨慎使用，建议仅上传不包含隐私信息的数据。</li>
-          </ul>
-        </div>
-        
-        <div class="card" style="margin-top: 20px;">
-          <h3>时间范围设置</h3>
-          <div class="time-range-selector">
-            <div class="time-input-group">
-              <label>起始日期：</label>
-              <input 
-                type="date" 
-                v-model="startDate" 
-                placeholder="留空表示不限制"
-              />
-            </div>
-            <div class="time-input-group">
-              <label>结束日期：</label>
-              <input 
-                type="date" 
-                v-model="endDate" 
-                placeholder="留空表示不限制"
-              />
-            </div>
-          </div>
-          <p class="time-range-hint">💡 留空表示不限制该端时间，可以只设置起始或结束日期（建议直接在导出时设置时间范围）</p>
-        </div>
-
         <div class="card" style="margin-top: 20px;">
           <h3>选词模式</h3>
           <div class="mode-selector">
@@ -76,8 +48,8 @@
             <label class="mode-option">
               <input type="radio" v-model="autoSelect" :value="true" />
               <div class="mode-content">
-                <strong>{{ aiFeatures.ai_word_selection_enabled ? '🤖 AI自动选词' : '📋 默认前十个' }}</strong>
-                <p>{{ aiFeatures.ai_word_selection_enabled ? 'AI自动选择前10个热词并生成报告' : '自动选择词频最高的前10个热词并生成报告' }}</p>
+                <strong>🤖 AI自动选词</strong>
+                <p>AI自动选择前10个热词并生成报告</p>
               </div>
             </label>
           </div>
@@ -108,6 +80,30 @@
         <p style="margin-top: 15px;">
           从下面的热词列表中选择最能代表这一年的词汇（<strong style="color: #dc3545;">选择10个</strong>）
         </p>
+
+        <!-- 已选择的关键词展示 -->
+        <div v-if="selectedWords.length > 0" class="selected-words-display">
+          <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #333;">
+            📋 已选择的关键词（{{ selectedWords.length }} / 10）
+          </h3>
+          <div class="selected-words-list">
+            <div 
+              v-for="(word, index) in selectedWords" 
+              :key="word"
+              class="selected-word-tag"
+            >
+              <span class="selected-word-number">{{ index + 1 }}</span>
+              <span class="selected-word-text">{{ word }}</span>
+              <button 
+                class="remove-word-btn"
+                @click.stop="toggleWord(word)"
+                title="取消选择"
+              >
+                ×
+              </button>
+            </div>
+          </div>
+        </div>
 
         <!-- 词汇列表 -->
         <div class="word-list">
@@ -218,6 +214,19 @@
                 📋 复制链接
               </button>
             </div>
+            
+            <div style="margin-top: 20px; padding: 15px; background: rgba(218, 165, 32, 0.1); border-radius: 8px; border-left: 4px solid #DAA520;">
+              <p style="margin: 0 0 10px 0; font-weight: 500; color: #DAA520;">🎭 群友性格锐评</p>
+              <p style="margin: 0 0 10px 0; font-size: 14px; color: #666;">查看10位群友的发言风格和用词特点</p>
+              <div class="flex" style="gap: 10px;">
+                <button @click="openPersonalityReport(finalResult.report_id)" class="primary" style="background: #DAA520; color: #1a1a1a;">
+                  🔗 查看群友锐评
+                </button>
+                <button @click="copyPersonalityUrl(finalResult.report_id)">
+                  📋 复制链接
+                </button>
+              </div>
+            </div>
           </div>
 
           <div class="flex" style="margin-top: 30px;">
@@ -233,7 +242,16 @@
     <!-- 历史记录页面 -->
     <div v-if="activeTab === 'history'" class="tab-content">
       <div class="card">
-        <h2>历史报告</h2>
+        <div class="history-header">
+          <h2>历史报告</h2>
+          <button 
+            v-if="reports.data && reports.data.length > 0" 
+            @click="deleteAllReports" 
+            class="danger delete-all-btn"
+          >
+            🗑️ 一键删除所有
+          </button>
+        </div>
         
         <div class="search-box">
           <input 
@@ -261,6 +279,7 @@
             </div>
             <div class="report-actions">
               <button @click="openReport(report.report_id)" class="primary">查看报告</button>
+              <button @click="openPersonalityReport(report.report_id)" style="background: #DAA520; color: #1a1a1a;">🎭 群友锐评</button>
               <button @click="copyReportUrl(report.report_id)">复制链接</button>
               <button @click="deleteReport(report.report_id)" class="danger">删除</button>
             </div>
@@ -297,74 +316,11 @@
 import axios from 'axios'
 import { reactive, ref, computed, onMounted } from 'vue'
 import Report from './Report.vue'
+import Personality from './Personality.vue'
 
+// API基础URL
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const SITE_URL = window.location.origin
-
-let csrfToken = null
-
-// AI功能开关状态
-const aiFeatures = ref({
-  ai_comment_enabled: false,
-  ai_word_selection_enabled: false
-})
-
-const fetchCsrfToken = async () => {
-  try {
-    const { data } = await axios.get(`${API_BASE}/csrf-token`)
-    csrfToken = data.csrf_token
-    console.log('✅ CSRF token已获取')
-  } catch (err) {
-    console.error('❌ 获取CSRF token失败:', err)
-  }
-}
-
-// 获取AI功能开关状态
-const fetchAIFeatures = async () => {
-  try {
-    const { data } = await axios.get(`${API_BASE}/health`)
-    if (data.features) {
-      aiFeatures.value = data.features
-      console.log('✅ AI功能状态:', aiFeatures.value)
-    }
-  } catch (err) {
-    console.error('❌ 获取AI功能状态失败:', err)
-  }
-}
-
-// 配置axios请求拦截器，自动添加CSRF token
-axios.interceptors.request.use(
-  config => {
-    // 对所有非GET请求添加CSRF token
-    if (config.method && !['get', 'head', 'options'].includes(config.method.toLowerCase())) {
-      if (csrfToken) {
-        config.headers['X-CSRF-Token'] = csrfToken
-      }
-    }
-    return config
-  },
-  error => {
-    return Promise.reject(error)
-  }
-)
-
-// 配置axios响应拦截器，处理CSRF错误
-axios.interceptors.response.use(
-  response => response,
-  async error => {
-    // 如果遇到CSRF验证失败，尝试重新获取token并重试
-    if (error.response?.status === 403 && error.response?.data?.error?.includes('CSRF')) {
-      console.warn('⚠️ CSRF token失效，正在重新获取...')
-      await fetchCsrfToken()
-      // 重试原始请求
-      if (csrfToken) {
-        error.config.headers['X-CSRF-Token'] = csrfToken
-        return axios.request(error.config)
-      }
-    }
-    return Promise.reject(error)
-  }
-)
 
 // 状态管理
 const activeTab = ref('upload')
@@ -374,10 +330,6 @@ const loading = ref(false)
 const loadingMessage = ref('')
 const loadingReports = ref(false)
 const autoSelect = ref(false)  // 是否AI自动选词
-
-// 时间范围设置
-const startDate = ref('')
-const endDate = ref('')
 
 // 当前报告数据
 const currentReport = ref(null)
@@ -407,6 +359,9 @@ const totalWordPages = computed(() => {
 // 历史报告
 const reports = ref({ data: [], total: 0, page: 1, page_size: 20 })
 const searchQuery = ref('')
+
+// 本地存储的报告ID列表（实现历史记录隔离）
+const MY_REPORTS_KEY = 'my_report_ids'
 
 // 模板相关
 const availableTemplates = ref([])
@@ -454,10 +409,37 @@ const copyTemplateUrl = async (templateId) => {
   }
 }
 
+// 保存报告ID到本地存储
+const saveMyReport = (reportId) => {
+  try {
+    const myReports = JSON.parse(localStorage.getItem(MY_REPORTS_KEY) || '[]')
+    if (!myReports.includes(reportId)) {
+      myReports.push(reportId)
+      localStorage.setItem(MY_REPORTS_KEY, JSON.stringify(myReports))
+    }
+  } catch (e) {
+    console.error('保存报告ID失败:', e)
+  }
+}
+
+// 获取本地存储的报告ID列表
+const getMyReports = () => {
+  try {
+    return JSON.parse(localStorage.getItem(MY_REPORTS_KEY) || '[]')
+  } catch (e) {
+    console.error('读取报告ID失败:', e)
+    return []
+  }
+}
 
 // 判断是否为报告页面
 const isReportPage = computed(() => {
   return window.location.pathname.startsWith('/report/')
+})
+
+// 判断是否为群友分析页面
+const isPersonalityPage = computed(() => {
+  return window.location.pathname.startsWith('/personality/')
 })
 
 // 计算报告URL
@@ -479,6 +461,28 @@ const openReport = (reportId) => {
 // 复制报告URL
 const copyReportUrl = async (reportId) => {
   const url = getReportUrl(reportId)
+  try {
+    await navigator.clipboard.writeText(url)
+    alert('链接已复制到剪贴板')
+  } catch (err) {
+    prompt('请手动复制链接：', url)
+  }
+}
+
+// 获取群友性格锐评URL
+const getPersonalityUrl = (reportId) => {
+  return `${SITE_URL}/personality/${reportId}`
+}
+
+// 打开群友性格锐评页面
+const openPersonalityReport = (reportId) => {
+  if (!reportId) return
+  window.open(`/personality/${reportId}`, '_blank')
+}
+
+// 复制群友性格锐评URL
+const copyPersonalityUrl = async (reportId) => {
+  const url = getPersonalityUrl(reportId)
   try {
     await navigator.clipboard.writeText(url)
     alert('链接已复制到剪贴板')
@@ -535,20 +539,9 @@ const uploadAndAnalyze = async () => {
   const timeoutMs = calculateTimeout(file.value.size, autoSelect.value)
   const timeoutSeconds = Math.ceil(timeoutMs / 1000)
   
-  // 根据AI功能开关状态设置加载提示
-  if (autoSelect.value) {
-    if (aiFeatures.value.ai_word_selection_enabled && aiFeatures.value.ai_comment_enabled) {
-      loadingMessage.value = `正在上传并分析，AI将自动选词并生成报告（AI锐评中）...\n（预计最多需要 ${timeoutSeconds} 秒）`
-    } else if (aiFeatures.value.ai_word_selection_enabled) {
-      loadingMessage.value = `正在上传并分析，AI将自动选词并生成报告...\n（预计最多需要 ${timeoutSeconds} 秒）`
-    } else if (aiFeatures.value.ai_comment_enabled) {
-      loadingMessage.value = `正在上传并分析，将自动选择前10个热词并生成报告（AI锐评中）...\n（预计最多需要 ${timeoutSeconds} 秒）`
-    } else {
-      loadingMessage.value = `正在上传并分析，将自动选择前10个热词并生成报告...\n（预计最多需要 ${timeoutSeconds} 秒）`
-    }
-  } else {
-    loadingMessage.value = `正在上传并分析，请稍候...\n（预计最多需要 ${timeoutSeconds} 秒）`
-  }
+  loadingMessage.value = autoSelect.value 
+    ? `正在上传并分析，AI将自动选词并生成报告...\n（预计最多需要 ${timeoutSeconds} 秒）` 
+    : `正在上传并分析，请稍候...\n（预计最多需要 ${timeoutSeconds} 秒）`
   
   console.log(`📊 文件大小: ${(file.value.size / (1024 * 1024)).toFixed(2)} MB`)
   console.log(`🤖 使用AI: ${autoSelect.value ? '是' : '否'}`)
@@ -559,16 +552,6 @@ const uploadAndAnalyze = async () => {
     form.append('file', file.value)
     form.append('auto_select', autoSelect.value ? 'true' : 'false')
     
-    // 添加时间范围参数
-    if (startDate.value) {
-      form.append('start_date', startDate.value)
-      console.log(`📅 起始日期: ${startDate.value}`)
-    }
-    if (endDate.value) {
-      form.append('end_date', endDate.value)
-      console.log(`📅 结束日期: ${endDate.value}`)
-    }
-    
     const { data } = await axios.post(`${API_BASE}/upload`, form, {
       headers: { 'Content-Type': 'multipart/form-data' },
       timeout: timeoutMs
@@ -578,8 +561,10 @@ const uploadAndAnalyze = async () => {
     
     // AI自动模式：直接显示结果
     if (autoSelect.value && data.success) {
-    finalResult.value = data
-    // 加载AI评论
+      finalResult.value = data
+      // 保存到本地存储
+      saveMyReport(data.report_id)
+      // 加载AI评论
       try {
         const detailRes = await axios.get(`${API_BASE}/reports/${data.report_id}`)
         aiComments.value = detailRes.data.ai_comments || {}
@@ -631,13 +616,6 @@ const finalizeReport = async () => {
   
   loading.value = true
   
-  // 根据AI锐评开关设置加载提示
-  if (aiFeatures.value.ai_comment_enabled) {
-    loadingMessage.value = '正在生成报告（AI锐评中）...'
-  } else {
-    loadingMessage.value = '正在生成报告...'
-  }
-  
   // finalize阶段主要是AI评论生成，设置固定超时180秒（3分钟）
   const finalizeTimeout = 180 * 1000
   console.log('⏱️ Finalize超时设置: 180 秒（AI评论生成）')
@@ -663,6 +641,8 @@ const finalizeReport = async () => {
     if (data.error) throw new Error(data.error)
     
     finalResult.value = data
+    // 保存到本地存储
+    saveMyReport(data.report_id)
     
     // 加载AI评论
     try {
@@ -680,21 +660,41 @@ const finalizeReport = async () => {
     alert(msg)
   } finally {
     loading.value = false
-    loadingMessage.value = ''
   }
 }
 
-// 加载报告列表（后端已按user_id过滤，直接使用）
+// 加载报告列表（只显示本地存储的报告）
 const loadReports = async (page = 1) => {
   loadingReports.value = true
   try {
-    const params = { page, page_size: 20 }
+    const myReportIds = getMyReports()
+    
+    // 如果没有本地报告，直接返回空
+    if (myReportIds.length === 0) {
+      reports.value = { data: [], total: 0, page: 1, page_size: 20 }
+      return
+    }
+    
+    // 获取更多报告以便过滤（因为要从中筛选出本地的）
+    const params = { page: 1, page_size: 100 }
     if (searchQuery.value) {
       params.chat_name = searchQuery.value
     }
     
     const { data } = await axios.get(`${API_BASE}/reports`, { params })
-    reports.value = data
+    
+    // 只保留localStorage中的报告
+    const filteredData = data.data.filter(report => 
+      myReportIds.includes(report.report_id)
+    )
+    
+    // 更新为过滤后的数据（不使用服务器端分页，因为是本地过滤）
+    reports.value = {
+      data: filteredData,
+      total: filteredData.length,
+      page: 1,
+      page_size: filteredData.length || 20
+    }
   } catch (err) {
     alert('加载失败: ' + (err.message || '未知错误'))
   } finally {
@@ -702,23 +702,105 @@ const loadReports = async (page = 1) => {
   }
 }
 
+// 分页
 const changePage = (page) => {
   loadReports(page)
 }
 
+// 删除报告
 const deleteReport = async (reportId) => {
   if (!confirm('确定要删除这个报告吗？此操作不可恢复！')) return
   
   try {
     await axios.delete(`${API_BASE}/reports/${reportId}`)
+    
+    // 从localStorage中移除该报告ID
+    const myReports = getMyReports()
+    const filtered = myReports.filter(id => id !== reportId)
+    localStorage.setItem(MY_REPORTS_KEY, JSON.stringify(filtered))
+    
     alert('删除成功')
     loadReports(reports.value.page)
   } catch (err) {
-    const errorMsg = err?.response?.data?.error || '删除失败，请稍后重试'
-    alert(errorMsg)
+    alert('删除失败: ' + (err.message || '未知错误'))
   }
 }
 
+// 一键删除所有报告
+const deleteAllReports = async () => {
+  const reportCount = reports.value.data?.length || 0
+  if (reportCount === 0) {
+    alert('没有可删除的报告')
+    return
+  }
+  
+  const confirmMsg = `确定要删除所有 ${reportCount} 个报告吗？\n\n此操作不可恢复！\n\n请输入"删除所有"以确认：`
+  const userInput = prompt(confirmMsg)
+  
+  if (userInput !== '删除所有') {
+    if (userInput !== null) {
+      alert('输入不正确，已取消删除')
+    }
+    return
+  }
+  
+  // 再次确认
+  if (!confirm(`最后确认：真的要删除所有 ${reportCount} 个报告吗？\n此操作将永久删除所有报告数据！`)) {
+    return
+  }
+  
+  const myReports = getMyReports()
+  if (myReports.length === 0) {
+    alert('没有可删除的报告')
+    return
+  }
+  
+  let successCount = 0
+  let failCount = 0
+  const totalCount = myReports.length
+  
+  // 显示进度提示
+  const progressMsg = document.createElement('div')
+  progressMsg.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); z-index: 10000; text-align: center;'
+  progressMsg.innerHTML = `<p>正在删除报告...</p><p>已完成: 0 / ${totalCount}</p>`
+  document.body.appendChild(progressMsg)
+  
+  try {
+    // 批量删除
+    for (let i = 0; i < myReports.length; i++) {
+      const reportId = myReports[i]
+      try {
+        await axios.delete(`${API_BASE}/reports/${reportId}`)
+        successCount++
+        progressMsg.innerHTML = `<p>正在删除报告...</p><p>已完成: ${i + 1} / ${totalCount}</p>`
+      } catch (err) {
+        console.error(`删除报告 ${reportId} 失败:`, err)
+        failCount++
+      }
+    }
+    
+    // 清空localStorage
+    localStorage.removeItem(MY_REPORTS_KEY)
+    
+    // 移除进度提示
+    document.body.removeChild(progressMsg)
+    
+    // 显示结果
+    if (failCount === 0) {
+      alert(`✅ 成功删除所有 ${successCount} 个报告`)
+    } else {
+      alert(`⚠️ 删除完成：成功 ${successCount} 个，失败 ${failCount} 个`)
+    }
+    
+    // 重新加载列表
+    loadReports()
+  } catch (err) {
+    document.body.removeChild(progressMsg)
+    alert('批量删除过程中发生错误: ' + (err.message || '未知错误'))
+  }
+}
+
+// 格式化日期
 const formatDate = (dateStr) => {
   const date = new Date(dateStr)
   return date.toLocaleString('zh-CN', {
@@ -726,541 +808,209 @@ const formatDate = (dateStr) => {
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
-    minute: '2-digit',
-    timeZone: 'Asia/Shanghai'
+    minute: '2-digit'
   })
 }
 
 // 页面加载时初始化
-onMounted(async () => {
-  await fetchCsrfToken()
-  await fetchAIFeatures()
+onMounted(() => {
   loadTemplates()
 })
 </script>
 
 <style scoped>
-/* 标签页样式 */
 .tabs {
   display: flex;
-  gap: 8px;
-  margin-bottom: 30px;
-  padding: 8px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border-radius: 16px;
-  box-shadow: 0 8px 32px rgba(102, 126, 234, 0.2);
+  gap: 10px;
+  margin-bottom: 20px;
+  border-bottom: 2px solid #e0e0e0;
 }
 
 .tab {
-  flex: 1;
-  padding: 14px 24px;
-  background: rgba(255, 255, 255, 0.1);
-  border: 2px solid transparent;
-  border-radius: 12px;
+  padding: 10px 20px;
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
   cursor: pointer;
   font-size: 16px;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.7);
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  backdrop-filter: blur(10px);
+  color: #666;
+  transition: all 0.3s;
 }
 
 .tab:hover {
-  background: rgba(255, 255, 255, 0.2);
-  color: white;
-  transform: translateY(-2px);
+  color: #007bff;
 }
 
 .tab.active {
-  background: white;
-  color: #667eea;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
-  transform: translateY(-2px);
+  color: #007bff;
+  border-bottom-color: #007bff;
 }
 
 .tab-content {
-  animation: fadeIn 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: fadeIn 0.3s;
 }
 
 @keyframes fadeIn {
-  from { 
-    opacity: 0; 
-    transform: translateY(20px);
-  }
-  to { 
-    opacity: 1; 
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
-/* 模式选择器 */
 .mode-selector {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 20px;
-  margin-top: 15px;
+  gap: 15px;
+  margin-top: 10px;
 }
 
 .mode-option {
   display: flex;
   align-items: flex-start;
-  padding: 20px;
-  border: 3px solid #e8eaf6;
-  border-radius: 16px;
+  padding: 15px;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
   cursor: pointer;
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  background: linear-gradient(135deg, #ffffff 0%, #f8f9ff 100%);
-  position: relative;
-  overflow: hidden;
-}
-
-.mode-option::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  opacity: 0;
-  transition: opacity 0.4s;
-  z-index: 0;
+  transition: all 0.3s;
+  background: white;
 }
 
 .mode-option:hover {
-  border-color: #667eea;
-  transform: translateY(-4px);
-  box-shadow: 0 12px 40px rgba(102, 126, 234, 0.25);
-}
-
-.mode-option:hover::before {
-  opacity: 0.05;
+  border-color: #007bff;
+  background: #f8f9fa;
 }
 
 .mode-option input[type="radio"] {
-  margin-right: 12px;
-  margin-top: 3px;
-  width: 20px;
-  height: 20px;
-  cursor: pointer;
-  position: relative;
-  z-index: 1;
+  margin-right: 10px;
+  margin-top: 2px;
 }
 
 .mode-option input[type="radio"]:checked + .mode-content {
-  color: #667eea;
-}
-
-.mode-option input[type="radio"]:checked ~ * {
-  position: relative;
-  z-index: 1;
-}
-
-.mode-content {
-  position: relative;
-  z-index: 1;
+  color: #007bff;
 }
 
 .mode-content p {
-  margin: 8px 0 0 0;
+  margin: 5px 0 0 0;
   font-size: 14px;
   color: #666;
-  line-height: 1.6;
 }
 
-.mode-content strong {
-  font-size: 16px;
-  display: block;
-  margin-bottom: 4px;
-}
-
-/* 进度信息 */
 .progress-info {
-  margin-top: 20px;
-  padding: 20px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border-radius: 16px;
+  margin-top: 15px;
+  padding: 15px;
+  background: #e7f3ff;
+  border-radius: 8px;
   text-align: center;
-  color: white;
-  box-shadow: 0 8px 32px rgba(102, 126, 234, 0.3);
-  animation: pulse 2s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.02); }
+  color: #0056b3;
 }
 
 .info-box {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   flex-wrap: wrap;
-  padding: 15px;
-  background: linear-gradient(135deg, #f8f9ff 0%, #e8eaf6 100%);
-  border-radius: 12px;
-  border: 2px solid #e8eaf6;
 }
 
-/* 词汇列表样式 */
+/* 新的列表样式 */
 .word-list {
-  margin-top: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-/* 时间范围选择器样式 */
-.time-range-selector {
-  display: flex;
-  gap: 20px;
   margin-top: 15px;
-}
-
-.time-input-group {
   display: flex;
   flex-direction: column;
-  flex: 1;
-}
-
-.time-input-group label {
-  font-weight: 700;
-  color: #333;
-  margin-bottom: 8px;
-  font-size: 16px;
-}
-
-.time-input-group input[type="date"] {
-  padding: 12px 16px;
-  border: 2px solid #cbd5e1;
-  border-radius: 12px;
-  font-size: 16px;
-  color: #444;
-  background: linear-gradient(135deg, #f8f9ff 0%, #ffffff 100%);
-  transition: all 0.3s ease;
-  box-shadow: inset 0 2px 4px rgba(0,0,0,0.05);
-}
-
-.time-input-group input[type="date"]::placeholder {
-  color: #aaa;
-  font-style: italic;
-}
-
-.time-input-group input[type="date"]:focus {
-  outline: none;
-  border-color: #667eea;
-  box-shadow: 0 0 12px rgba(102, 126, 234, 0.7);
+  gap: 12px;
 }
 
 .word-list-item {
-  padding: 20px;
-  background: linear-gradient(135deg, #ffffff 0%, #f8f9ff 100%);
-  border: 3px solid #e8eaf6;
-  border-radius: 16px;
+  padding: 15px;
+  background: white;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
   cursor: pointer;
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  position: relative;
-  overflow: hidden;
-}
-
-.word-list-item::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  opacity: 0;
-  transition: opacity 0.4s;
+  transition: all 0.3s;
 }
 
 .word-list-item:hover {
-  border-color: #667eea;
-  transform: translateX(8px);
-  box-shadow: 0 12px 40px rgba(102, 126, 234, 0.25);
-}
-
-.word-list-item:hover::before {
-  opacity: 0.05;
+  border-color: #007bff;
+  box-shadow: 0 2px 12px rgba(0,123,255,0.15);
 }
 
 .word-list-item.selected {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border-color: #667eea;
-  color: white;
-  box-shadow: 0 12px 40px rgba(102, 126, 234, 0.4);
-  transform: translateX(8px) scale(1.02);
-}
-
-.word-list-item.selected .word-list-text,
-.word-list-item.selected .word-list-freq,
-.word-list-item.selected .word-contributors,
-.word-list-item.selected .word-samples strong,
-.word-list-item.selected .sample-item {
-  color: white;
+  background: #e7f3ff;
+  border-color: #007bff;
 }
 
 .word-list-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
-  position: relative;
-  z-index: 1;
+  margin-bottom: 10px;
 }
 
 .word-main-info {
   display: flex;
   align-items: baseline;
-  gap: 12px;
+  gap: 10px;
 }
 
 .word-list-text {
-  font-size: 20px;
-  font-weight: 700;
+  font-size: 18px;
+  font-weight: 600;
   color: #333;
-  letter-spacing: 0.5px;
-}
-
-.word-list-item.selected .word-list-text {
-  color: white;
 }
 
 .word-list-freq {
   font-size: 14px;
   color: #666;
-  font-weight: 500;
-}
-
-.word-list-item.selected .word-list-freq {
-  color: rgba(255, 255, 255, 0.9);
 }
 
 .select-indicator {
-  padding: 8px 16px;
-  border-radius: 20px;
+  padding: 4px 12px;
+  border-radius: 4px;
   font-size: 14px;
-  font-weight: 600;
-  background: linear-gradient(135deg, #f8f9ff 0%, #e8eaf6 100%);
-  color: #667eea;
-  border: 2px solid #e8eaf6;
-  transition: all 0.3s;
+  font-weight: 500;
+  background: #f8f9fa;
+  color: #666;
 }
 
 .word-list-item.selected .select-indicator {
-  background: rgba(255, 255, 255, 0.25);
+  background: #007bff;
   color: white;
-  border-color: rgba(255, 255, 255, 0.3);
-  backdrop-filter: blur(10px);
 }
 
 .word-contributors {
-  margin-bottom: 10px;
+  margin-bottom: 8px;
   font-size: 14px;
   color: #555;
-  position: relative;
-  z-index: 1;
-  line-height: 1.6;
-}
-
-.word-list-item.selected .word-contributors {
-  color: rgba(255, 255, 255, 0.95);
 }
 
 .word-contributors strong {
   color: #333;
-  margin-right: 6px;
-  font-weight: 600;
-}
-
-.word-list-item.selected .word-contributors strong {
-  color: white;
+  margin-right: 5px;
 }
 
 .word-samples {
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 2px solid #e8eaf6;
-  position: relative;
-  z-index: 1;
-}
-
-.word-list-item.selected .word-samples {
-  border-top-color: rgba(255, 255, 255, 0.3);
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #e9ecef;
 }
 
 .word-samples strong {
   display: block;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   color: #333;
   font-size: 14px;
-  font-weight: 600;
-}
-
-.word-list-item.selected .word-samples strong {
-  color: white;
 }
 
 .sample-item {
-  margin: 6px 0;
-  padding: 10px 14px;
-  background: linear-gradient(135deg, #f8f9ff 0%, #ffffff 100%);
-  border-left: 4px solid #667eea;
-  border-radius: 8px;
+  margin: 4px 0;
+  padding: 6px 10px;
+  background: #f8f9fa;
+  border-left: 3px solid #dee2e6;
+  border-radius: 4px;
   font-size: 13px;
   color: #555;
-  line-height: 1.6;
-  transition: all 0.3s;
-}
-
-.word-list-item.selected .sample-item {
-  background: rgba(255, 255, 255, 0.2);
-  border-left-color: white;
-  color: white;
-  backdrop-filter: blur(10px);
-}
-
-.badge {
-  padding: 6px 14px;
-  border-radius: 20px;
-  font-size: 13px;
-  font-weight: 600;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
-  transition: all 0.3s;
-}
-
-.badge:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(102, 126, 234, 0.4);
+  line-height: 1.5;
 }
 
 .badge.success {
-  background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
-  box-shadow: 0 4px 12px rgba(56, 239, 125, 0.3);
-}
-
-.badge.success:hover {
-  box-shadow: 0 6px 16px rgba(56, 239, 125, 0.4);
-}
-
-/* 标题和文本美化 */
-h2 {
-  font-size: 28px;
-  font-weight: 800;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  margin-bottom: 16px;
-  letter-spacing: 0.5px;
-}
-
-h3 {
-  font-size: 20px;
-  font-weight: 700;
-  color: #333;
-  margin-bottom: 12px;
-  letter-spacing: 0.3px;
-}
-
-p {
-  font-size: 15px;
-  line-height: 1.8;
-  color: #555;
-}
-
-.time-range-hint {
-  margin-top: 12px;
-  padding: 12px 16px;
-  background: linear-gradient(135deg, #fff9e6 0%, #fffbf0 100%);
-  border-left: 4px solid #ffc107;
-  border-radius: 8px;
-  color: #856404;
-  font-size: 14px;
-  font-weight: 500;
-}
-
-/* 文件上传输入框美化 */
-input[type="file"] {
-  padding: 14px 20px;
-  border: 3px dashed #e8eaf6;
-  border-radius: 12px;
-  background: linear-gradient(135deg, #f8f9ff 0%, #ffffff 100%);
-  cursor: pointer;
-  transition: all 0.3s;
-  font-size: 15px;
-  color: #555;
-  font-weight: 500;
-}
-
-input[type="file"]:hover {
-  border-color: #667eea;
-  background: linear-gradient(135deg, #ffffff 0%, #f0f2ff 100%);
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(102, 126, 234, 0.15);
-}
-
-input[type="file"]::file-selector-button {
-  padding: 10px 20px;
-  margin-right: 16px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #28a745;
   color: white;
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
-  font-weight: 600;
-  transition: all 0.3s;
-}
-
-input[type="file"]::file-selector-button:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-}
-
-/* 通知框美化 */
-.notice-box {
-  padding: 24px;
-  background: linear-gradient(135deg, #fff5f5 0%, #ffe8e8 100%);
-  border-left: 5px solid #f5576c;
-  border-radius: 12px;
-  margin: 20px 0;
-  box-shadow: 0 4px 16px rgba(245, 87, 108, 0.1);
-}
-
-.notice-box h3 {
-  color: #c82333;
-  margin-bottom: 16px;
-  font-size: 18px;
-}
-
-.notice-box ul {
-  margin: 0;
-  padding-left: 24px;
-}
-
-.notice-box li {
-  margin: 10px 0;
-  line-height: 1.8;
-  color: #721c24;
-}
-
-.notice-box strong {
-  color: #c82333;
-  font-weight: 700;
-}
-
-.notice-box a {
-  color: #667eea;
-  text-decoration: none;
-  font-weight: 600;
-  transition: all 0.3s;
-}
-
-.notice-box a:hover {
-  color: #764ba2;
-  text-decoration: underline;
 }
 
 /* 保留旧的网格样式以备用 */
@@ -1308,64 +1058,127 @@ input[type="file"]::file-selector-button:hover {
   opacity: 0.7;
 }
 
-.selected-summary {
+/* 已选择的关键词展示区域 */
+.selected-words-display {
   margin-top: 20px;
-  padding: 16px 24px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border-radius: 16px;
-  text-align: center;
-  font-weight: 600;
-  font-size: 16px;
-  color: white;
-  box-shadow: 0 8px 32px rgba(102, 126, 234, 0.3);
-  transition: all 0.4s;
+  margin-bottom: 15px;
+  padding: 15px;
+  background: linear-gradient(135deg, #e7f3ff 0%, #f0f8ff 100%);
+  border: 2px solid #007bff;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,123,255,0.1);
 }
 
-.selected-summary:hover {
+.selected-words-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.selected-word-tag {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: white;
+  border: 2px solid #007bff;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #0056b3;
+  transition: all 0.2s;
+  box-shadow: 0 1px 3px rgba(0,123,255,0.2);
+}
+
+.selected-word-tag:hover {
+  background: #007bff;
+  color: white;
   transform: translateY(-2px);
-  box-shadow: 0 12px 40px rgba(102, 126, 234, 0.4);
+  box-shadow: 0 3px 8px rgba(0,123,255,0.3);
+}
+
+.selected-word-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  background: #007bff;
+  color: white;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.selected-word-tag:hover .selected-word-number {
+  background: white;
+  color: #007bff;
+}
+
+.selected-word-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.remove-word-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  color: #dc3545;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.remove-word-btn:hover {
+  background: #dc3545;
+  color: white;
+  transform: scale(1.1);
+}
+
+.selected-summary {
+  margin-top: 15px;
+  padding: 10px;
+  background: #e7f3ff;
+  border-radius: 6px;
+  text-align: center;
+  font-weight: 500;
+  color: #0056b3;
 }
 
 .selected-summary.warning {
-  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-  box-shadow: 0 8px 32px rgba(245, 87, 108, 0.3);
-}
-
-.selected-summary.warning:hover {
-  box-shadow: 0 12px 40px rgba(245, 87, 108, 0.4);
+  background: #fff3cd;
+  color: #856404;
+  border: 1px solid #ffeaa7;
 }
 
 .success-box {
-  padding: 30px;
-  background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
-  border-radius: 20px;
-  box-shadow: 0 12px 48px rgba(56, 239, 125, 0.3);
-  color: white;
-}
-
-.success-box h2 {
-  color: white;
-  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-}
-
-.success-box p {
-  color: white;
-  font-size: 16px;
-  line-height: 1.6;
+  padding: 20px;
+  background: #d4edda;
+  border: 1px solid #c3e6cb;
+  border-radius: 8px;
 }
 
 .url-display {
-  padding: 16px 20px;
-  background: rgba(255, 255, 255, 0.95);
-  border: 3px solid rgba(255, 255, 255, 0.5);
-  border-radius: 12px;
-  font-family: 'Courier New', monospace;
+  padding: 12px 15px;
+  background: white;
+  border: 1px solid #c3e6cb;
+  border-radius: 6px;
+  font-family: monospace;
   font-size: 14px;
-  color: #667eea;
+  color: #0056b3;
   word-break: break-all;
-  font-weight: 600;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
-  backdrop-filter: blur(10px);
 }
 
 .ai-comments-section {
@@ -1415,292 +1228,178 @@ input[type="file"]::file-selector-button:hover {
   line-height: 1.6;
 }
 
+.history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.history-header h2 {
+  margin: 0;
+}
+
+.delete-all-btn {
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 6px;
+  transition: all 0.3s;
+}
+
+.delete-all-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(220, 53, 69, 0.3);
+}
+
 .search-box {
   display: flex;
-  gap: 12px;
-  margin-bottom: 25px;
+  gap: 10px;
+  margin-bottom: 20px;
 }
 
 .search-box input {
   flex: 1;
-  padding: 14px 20px;
-  border: 3px solid #e8eaf6;
-  border-radius: 12px;
-  font-size: 15px;
-  transition: all 0.3s;
-  background: linear-gradient(135deg, #ffffff 0%, #f8f9ff 100%);
-}
-
-.search-box input:focus {
-  outline: none;
-  border-color: #667eea;
-  box-shadow: 0 8px 24px rgba(102, 126, 234, 0.2);
-  transform: translateY(-2px);
 }
 
 .reports-list {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 15px;
 }
 
 .report-item {
-  padding: 25px;
-  background: linear-gradient(135deg, #ffffff 0%, #f8f9ff 100%);
-  border-radius: 16px;
-  border: 3px solid #e8eaf6;
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  position: relative;
-  overflow: hidden;
-}
-
-.report-item::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  opacity: 0;
-  transition: opacity 0.4s;
-}
-
-.report-item:hover {
-  border-color: #667eea;
-  transform: translateY(-4px);
-  box-shadow: 0 12px 40px rgba(102, 126, 234, 0.25);
-}
-
-.report-item:hover::before {
-  opacity: 0.05;
+  padding: 20px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e0e0e0;
 }
 
 .report-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 15px;
-  position: relative;
-  z-index: 1;
+  margin-bottom: 10px;
 }
 
 .report-header h3 {
   margin: 0;
   color: #333;
-  font-size: 20px;
-  font-weight: 700;
 }
 
 .report-date {
   color: #666;
   font-size: 14px;
-  font-weight: 500;
-  padding: 6px 12px;
-  background: linear-gradient(135deg, #f8f9ff 0%, #e8eaf6 100%);
-  border-radius: 20px;
 }
 
 .report-info {
   display: flex;
-  gap: 12px;
-  margin-bottom: 15px;
-  flex-wrap: wrap;
-  position: relative;
-  z-index: 1;
+  gap: 10px;
+  margin-bottom: 10px;
 }
 
 .report-url {
-  margin: 15px 0;
-  padding: 14px 18px;
-  background: linear-gradient(135deg, #f8f9ff 0%, #ffffff 100%);
-  border-radius: 12px;
-  border: 2px solid #e8eaf6;
-  position: relative;
-  z-index: 1;
+  margin: 10px 0;
+  padding: 10px;
+  background: white;
+  border-radius: 4px;
+  border: 1px solid #dee2e6;
 }
 
 .report-url code {
   font-size: 13px;
-  color: #667eea;
+  color: #007bff;
   word-break: break-all;
-  font-weight: 600;
 }
 
 .report-actions {
   display: flex;
-  gap: 12px;
-  margin-top: 20px;
-  flex-wrap: wrap;
-  position: relative;
-  z-index: 1;
+  gap: 10px;
+  margin-top: 15px;
 }
 
 .report-actions button {
-  padding: 12px 24px;
+  padding: 8px 16px;
   font-size: 14px;
-  font-weight: 600;
-  border-radius: 12px;
-  transition: all 0.3s;
 }
 
 .pagination {
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 20px;
-  margin-top: 30px;
-  padding: 20px;
-  background: linear-gradient(135deg, #f8f9ff 0%, #e8eaf6 100%);
-  border-radius: 16px;
-}
-
-.pagination button {
-  padding: 12px 24px;
-  font-weight: 600;
-  border-radius: 12px;
-  transition: all 0.3s;
-}
-
-.pagination span {
-  font-weight: 600;
-  color: #667eea;
-  font-size: 15px;
+  gap: 15px;
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid #e0e0e0;
 }
 
 .empty-state {
   text-align: center;
-  padding: 60px 40px;
+  padding: 40px;
   color: #999;
-  font-size: 16px;
-  background: linear-gradient(135deg, #f8f9ff 0%, #e8eaf6 100%);
-  border-radius: 16px;
-  border: 3px dashed #e8eaf6;
 }
 
 .loading {
   text-align: center;
-  padding: 60px 40px;
-  color: #667eea;
-  font-size: 16px;
-  font-weight: 600;
-  background: linear-gradient(135deg, #f8f9ff 0%, #e8eaf6 100%);
-  border-radius: 16px;
-  animation: pulse 2s ease-in-out infinite;
-}
-
-button {
-  padding: 12px 24px;
-  border: none;
-  border-radius: 12px;
-  font-size: 15px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  background: linear-gradient(135deg, #f8f9ff 0%, #e8eaf6 100%);
-  color: #667eea;
-  border: 2px solid #e8eaf6;
-}
-
-button:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(102, 126, 234, 0.2);
-  border-color: #667eea;
-}
-
-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  transform: none;
+  padding: 40px;
+  color: #666;
 }
 
 button.primary {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #007bff;
   color: white;
-  border-color: transparent;
-  box-shadow: 0 8px 24px rgba(102, 126, 234, 0.3);
 }
 
 button.primary:hover:not(:disabled) {
-  box-shadow: 0 12px 32px rgba(102, 126, 234, 0.4);
-  transform: translateY(-3px);
+  background: #0056b3;
 }
 
 button.danger {
-  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  background: #dc3545;
   color: white;
-  border-color: transparent;
-  box-shadow: 0 8px 24px rgba(245, 87, 108, 0.3);
 }
 
 button.danger:hover:not(:disabled) {
-  box-shadow: 0 12px 32px rgba(245, 87, 108, 0.4);
-  transform: translateY(-3px);
+  background: #c82333;
 }
 
 /* 模板选择器样式 */
 .template-selector {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 20px;
-  margin-top: 15px;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 15px;
+  margin-top: 10px;
 }
 
 .template-option {
-  padding: 20px;
-  background: rgba(255, 255, 255, 0.95);
-  border: 3px solid rgba(255, 255, 255, 0.5);
-  border-radius: 16px;
+  padding: 15px;
+  background: white;
+  border: 2px solid #c3e6cb;
+  border-radius: 8px;
   cursor: pointer;
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  backdrop-filter: blur(10px);
-  position: relative;
-  overflow: hidden;
-}
-
-.template-option::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.3) 0%, rgba(255, 255, 255, 0.1) 100%);
-  opacity: 0;
-  transition: opacity 0.4s;
+  transition: all 0.3s;
 }
 
 .template-option:hover {
-  border-color: rgba(255, 255, 255, 0.8);
-  transform: translateY(-4px);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
-}
-
-.template-option:hover::before {
-  opacity: 1;
+  border-color: #28a745;
+  box-shadow: 0 2px 12px rgba(40,167,69,0.2);
 }
 
 .template-option.selected {
-  background: rgba(255, 255, 255, 1);
-  border-color: white;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.2);
-  transform: translateY(-6px) scale(1.02);
+  background: #d4edda;
+  border-color: #28a745;
+  box-shadow: 0 3px 15px rgba(40,167,69,0.3);
 }
 
 .template-name {
-  font-size: 18px;
-  font-weight: 700;
+  font-size: 16px;
+  font-weight: 600;
   color: #155724;
-  margin-bottom: 8px;
-  position: relative;
-  z-index: 1;
+  margin-bottom: 5px;
 }
 
 .template-desc {
   font-size: 14px;
-  color: rgba(0, 0, 0, 0.7);
-  line-height: 1.6;
-  position: relative;
-  z-index: 1;
+  color: #666;
 }
 </style>

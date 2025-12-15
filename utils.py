@@ -4,9 +4,9 @@ import json
 import math
 from datetime import datetime, timezone, timedelta
 from collections import Counter
-from logger import get_logger
 
-logger = get_logger(__name__)
+# 无意义符号集合（装饰性符号，在词频统计中应该被过滤）
+MEANINGLESS_SYMBOLS = '⌒☆★◆◇■□▲△●○※§▽▼◐◑◒◓◔◕◖◗◘◙◚◛◜◝◞◟◠◡☀☁☂☃☄☎☏☐☑☒☓☔☕☖☗☘☙☚☛☜☝☞☟☠☡☢☣☤☥☦☧☨☩☪☫☬☭☮☯☰☱☲☳☴☵☶☷☸☹☺☻☼☽☾☿♀♁♂♃♄♅♆♇♈♉♊♋♌♍♎♏♐♑♒♓♔♕♖♗♘♙♚♛♜♝♞♟♠♡♢♣♤♥♦♧♨♩♪♫♬♭♮♯♰♱♲♳♴♵♶♷♸♹♺♻♼♽♾♿⚀⚁⚂⚃⚄⚅⚆⚇⚈⚉⚊⚋⚌⚍⚎⚏⚐⚑⚒⚓⚔⚕⚖⚗⚘⚙⚚⚛⚜⚝⚞⚟⚠⚡⚢⚣⚤⚥⚦⚧⚨⚩⚪⚫⚬⚭⚮⚯⚰⚱⚲⚳⚴⚵⚶⚷⚸⚹⚺⚻⚼⚽⚾⚿⛀⛁⛂⛃⛄⛅⛆⛇⛈⛉⛊⛋⛌⛍⛎⛏⛐⛑⛒⛓⛔⛕⛖⛗⛘⛙⛚⛛⛜⛝⛞⛟⛠⛡⛢⛣⛤⛥⛦⛧⛨⛩⛪⛫⛬⛭⛮⛯⛰⛱⛲⛳⛴⛵⛶⛷⛸⛹⛺⛻⛼⛽⛾⛿'
 
 def load_json(filepath):
     """
@@ -15,7 +15,7 @@ def load_json(filepath):
     """
     try:
         import ijson
-        logger.info("📖 使用流式解析加载 JSON 文件...")
+        print(f"📖 使用流式解析加载 JSON 文件...")
         
         with open(filepath, 'rb') as f:
             parser = ijson.parse(f)
@@ -44,7 +44,7 @@ def load_json(filepath):
                         current_message = {}
                         message_count += 1
                         if message_count % 10000 == 0:
-                            logger.debug(f"   已处理 {message_count} 条消息...")
+                            print(f"   已处理 {message_count} 条消息...")
                     
                     elif prefix == 'messages.item' and event == 'end_map':
                         if current_message:
@@ -116,20 +116,20 @@ def load_json(filepath):
             chat_name = '未知群聊'
             result['chatInfo']['name'] = chat_name
             
-        logger.info(f"✅ 成功加载 {len(result['messages'])} 条消息, 群聊: {chat_name}")
+        print(f"✅ 成功加载 {len(result['messages'])} 条消息, 群聊: {chat_name}")
         return result
         
     except ImportError:
-        logger.warning("⚠️ ijson 未安装，使用标准加载（大文件可能导致内存不足）")
+        print("⚠️ ijson 未安装，使用标准加载（大文件可能导致内存不足）")
         with open(filepath, 'r', encoding='utf-8-sig') as f:
             return json.load(f)
     except Exception as e:
-        logger.warning(f"⚠️ 流式解析失败，尝试标准加载: {e}")
+        print(f"⚠️ 流式解析失败，尝试标准加载: {e}")
         try:
             with open(filepath, 'r', encoding='utf-8-sig') as f:
                 return json.load(f)
         except MemoryError:
-            logger.error("❌ 文件过大，无法加载到内存")
+            print("❌ 文件过大，无法加载到内存")
             raise MemoryError("JSON 文件过大，请减小文件大小或增加系统内存")
 
 def extract_emojis(text):
@@ -169,20 +169,6 @@ def parse_timestamp(ts):
     except:
         return None
 
-def parse_datetime(ts):
-    """
-    解析 ISO 8601 时间字符串，返回东八区 datetime 对象
-    """
-    if not ts:
-        return None
-    try:
-        dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
-        local_dt = dt.astimezone(timezone(timedelta(hours=8)))
-        return local_dt
-    except Exception as e:
-        logger.warning(f"解析时间失败: {ts} | 错误: {e}")
-        return None
-
 def clean_text(text):
     """清理文本，去除表情、@、回复等干扰内容"""
     if not text:
@@ -197,17 +183,41 @@ def clean_text(text):
     # 处理只有@没有后续内容的情况
     text = re.sub(r'@[^\n]*$', '', text)
     
-    # 3. 循环去除所有方括号内容（如[图片][表情]等）
+    # 3. 去除图片标记（更彻底的匹配，包括各种格式）
+    # 匹配 [图片: ...] 格式，包括可能包含特殊字符的情况
+    text = re.sub(r'\[图片[^\]]*\]', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'\[图片[^\[\]]*', '', text, flags=re.IGNORECASE)  # 处理未闭合的标记
+    
+    # 4. 循环去除所有方括号内容（如[表情][链接]等）
     prev = None
     while prev != text:
         prev = text
         text = re.sub(r'\[[^\[\]]*\]', '', text)
     
-    # 4. 去除链接
+    # 5. 去除链接
     text = re.sub(r'https?://\S+', '', text)
     text = re.sub(r'www\.\S+', '', text)
     
-    # 5. 去除多余空白
+    # 6. 去除类似图片ID的字符串（如 YDO3MCB`PR 这种）
+    # 匹配：字母数字+反引号+字母数字的模式
+    text = re.sub(r'[A-Z0-9]+`[A-Z0-9]+', '', text)
+    
+    # 6.1. 去除包含特殊字符的ID类字符串（如 7R%D8、包含%、_、-、}、]等的短字符串）
+    # 匹配：3-10个字符，包含字母数字和特殊字符（%、_、-、}、]等），且不包含中文
+    # 先匹配包含特殊字符的短字符串
+    def remove_id_like(match):
+        word = match.group()
+        # 如果包含特殊字符且没有中文，很可能是ID
+        if re.search(r'[%_\-}\]]', word) and not re.search(r'[\u4e00-\u9fff]', word):
+            return ''
+        return word
+    text = re.sub(r'\b[a-zA-Z0-9%_\-}\]]{3,10}\b', remove_id_like, text)
+    
+    # 7. 去除无意义符号（如⌒、☆、★等装饰性符号）
+    for symbol in MEANINGLESS_SYMBOLS:
+        text = text.replace(symbol, '')
+    
+    # 8. 去除多余空白
     text = re.sub(r'\s+', ' ', text).strip()
     
     return text

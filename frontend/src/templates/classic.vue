@@ -87,6 +87,33 @@
       
       <div class="stripe"></div>
       
+      <!-- 群神人 -->
+      <div v-if="report.champion" class="section champion-section">
+        <div class="section-header">
+          <div class="section-title">群神人</div>
+        </div>
+        
+        <div class="champion-card">
+          <div class="champion-crown-large">👑</div>
+          <img class="champion-avatar" 
+               :src="report.champion.avatar" 
+               :alt="report.champion.name"
+               @error="handleImageError">
+          <div class="champion-name">{{ report.champion.name }}</div>
+          <div class="champion-subtitle">获得 {{ report.champion.first_place_count }} 项第一名</div>
+          
+          <div class="champion-honors">
+            <div v-for="(honor, index) in report.champion.honors" :key="index" class="champion-honor-item">
+              <span class="champion-honor-icon">{{ honor.icon }}</span>
+              <span class="champion-honor-title">{{ honor.title }}</span>
+              <span class="champion-honor-value">{{ formatNumber(honor.value) }}{{ honor.unit }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="stripe"></div>
+      
       <!-- 榜单 -->
       <div class="section rankings-section">
         <div class="section-header">
@@ -188,6 +215,19 @@
         </div>
       </div>
       
+      <!-- 群友性格锐评入口 -->
+      <div v-if="report.user_personalities && report.user_personalities.length > 0" class="personality-section">
+        <div class="personality-entry">
+          <div class="personality-entry-content">
+            <div class="personality-entry-title">🎭 群友性格锐评</div>
+            <div class="personality-entry-desc">查看10位群友的发言风格和用词特点</div>
+          </div>
+          <a :href="getPersonalityUrl()" class="personality-entry-button" target="_blank">
+            🔗 立即查看
+          </a>
+        </div>
+      </div>
+      
       <!-- 页脚 -->
       <div class="footer">
         <div class="footer-text">
@@ -254,14 +294,86 @@ const imageFileName = computed(() => {
   const chatName = props.report?.chat_name || '报告'
   return `${chatName}_年度报告_${new Date().getTime()}.png`
 })
+
+// 获取群友性格锐评页面URL
+const getPersonalityUrl = () => {
+  const reportId = props.report?.report_id
+  if (!reportId) {
+    // 如果没有report_id，尝试从URL中获取
+    const path = window.location.pathname
+    const match = path.match(/\/report\/(?:[^/]+\/)?([^/]+)/)
+    if (match) {
+      return `/api/reports/${match[1]}/personality`
+    }
+    return '#'
+  }
+  return `/api/reports/${reportId}/personality`
+}
 </script>
 
-<style>
+<style lang="css">
 @import '../report-styles.css';
 </style>
 
-<style scoped>
-.classic-template {
-  
+<style scoped lang="css">
+/* 群友性格锐评入口样式 */
+.personality-section {
+  padding: 30px 20px;
+  background: linear-gradient(135deg, rgba(196, 30, 58, 0.1) 0%, rgba(218, 165, 32, 0.1) 100%);
+  border-top: 2px solid #DAA520;
+  border-bottom: 2px solid #DAA520;
+  margin: 20px 0;
+}
+
+.personality-entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(26, 26, 26, 0.8);
+  padding: 20px;
+  border-radius: 12px;
+  border: 2px solid #DAA520;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.personality-entry-content {
+  flex: 1;
+}
+
+.personality-entry-title {
+  font-size: 18px;
+  font-weight: 900;
+  color: #DAA520;
+  margin-bottom: 8px;
+}
+
+.personality-entry-desc {
+  font-size: 14px;
+  color: #F5F5DC;
+  opacity: 0.9;
+}
+
+.personality-entry-button {
+  display: inline-block;
+  background: #DAA520;
+  color: #1a1a1a;
+  padding: 12px 24px;
+  border-radius: 8px;
+  text-decoration: none;
+  font-weight: 700;
+  font-size: 14px;
+  transition: all 0.3s;
+  white-space: nowrap;
+  margin-left: 20px;
+}
+
+.personality-entry-button:hover {
+  background: #E85D04;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(218, 165, 32, 0.4);
+}
+
+.personality-entry-button:active {
+  transform: translateY(0);
 }
 </style>

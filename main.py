@@ -32,11 +32,6 @@ from utils import load_json, sanitize_filename
 from analyzer import ChatAnalyzer
 from report_generator import ReportGenerator
 from image_generator import ImageGenerator
-from logger import get_logger, init_logging
-
-# 初始化日志系统
-init_logging()
-logger = get_logger('main')
 
 
 def main():
@@ -49,17 +44,17 @@ def main():
     
     # 检查文件存在
     if not os.path.exists(input_file):
-        logger.error(f"文件不存在: {input_file}")
-        logger.info(f"💡 请修改 config.py 中的 INPUT_FILE 或传入文件路径")
+        print(f"❌ 文件不存在: {input_file}")
+        print(f"💡 请修改 config.py 中的 INPUT_FILE 或传入文件路径")
         sys.exit(1)
     
-    logger.info(f"📂 加载文件: {input_file}")
+    print(f"📂 加载文件: {input_file}")
     
     # 加载数据
     try:
         data = load_json(input_file)
     except Exception as e:
-        logger.error(f"文件加载失败: {e}")
+        print(f"❌ 文件加载失败: {e}")
         sys.exit(1)
     
     # 创建分析器
@@ -81,13 +76,13 @@ def main():
     )
     with open(json_path, 'w', encoding='utf-8') as f:
         json.dump(json_data, f, ensure_ascii=False, indent=2)
-    logger.info(f"📊 JSON已保存: {json_path}")
+    print(f"📊 JSON已保存: {json_path}")
     
     # 图片生成（如果启用）
     if cfg.ENABLE_IMAGE_EXPORT:
-        logger.info("\n" + "=" * 60)
-        logger.info("🖼️  可视化报告生成")
-        logger.info("=" * 60)
+        print("\n" + "=" * 60)
+        print("🖼️  可视化报告生成")
+        print("=" * 60)
         
         print("\n选择生成模式:")
         print("  1. 交互式选择热词 (推荐)")
@@ -98,7 +93,7 @@ def main():
         choice = input("\n请选择 [1/2/3/4]: ").strip()
         
         if choice == '4':
-            logger.info("⏭️ 跳过可视化报告生成")
+            print("⏭️ 跳过可视化报告生成")
         else:
             img_gen = ImageGenerator(analyzer)
             
@@ -132,15 +127,15 @@ def main():
                 html_path, img_path = img_gen.generate(auto_select=False, enable_ai=enable_ai, generate_image=generate_image)
             
             if html_path:
-                logger.info(f"\n📄 HTML报告: {html_path}")
+                print(f"\n📄 HTML报告: {html_path}")
             if img_path:
-                logger.info(f"🖼️ 图片报告: {img_path}")
+                print(f"🖼️ 图片报告: {img_path}")
     else:
-        logger.info("\n💡 如需生成可视化报告，请设置 ENABLE_IMAGE_EXPORT = True")
+        print("\n💡 如需生成可视化报告，请设置 ENABLE_IMAGE_EXPORT = True")
     
-    logger.info("\n" + "=" * 60)
-    logger.info("✨ 全部完成！")
-    logger.info("=" * 60)
+    print("\n" + "=" * 60)
+    print("✨ 全部完成！")
+    print("=" * 60)
 
 
 if __name__ == '__main__':

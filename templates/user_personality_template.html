@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ chat_name }} - 群友性格锐评</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;700;900&display=swap');
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        :root {
+            --red: #C41E3A;
+            --dark-red: #8B0000;
+            --gold: #DAA520;
+            --orange: #E85D04;
+            --black: #1a1a1a;
+            --dark: #252525;
+            --cream: #F5F5DC;
+            --white: #FFFFFF;
+            --blue: #1D3557;
+        }
+        
+        body {
+            font-family: 'Noto Sans SC', -apple-system, sans-serif;
+            background: var(--black);
+            color: var(--cream);
+            width: 900px;
+            margin: 0 auto;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        
+        .report-container {
+            width: 900px;
+            background: var(--black);
+            overflow: hidden;
+            position: relative;
+        }
+        
+        @media (max-width: 950px) {
+            body {
+                width: 100%;
+                max-width: 450px;
+            }
+            .report-container {
+                width: 100%;
+                max-width: 450px;
+            }
+        }
+        
+        /* ========== 条纹装饰 ========== */
+        .stripe {
+            height: 15px;
+            background: repeating-linear-gradient(
+                90deg,
+                var(--red) 0px,
+                var(--red) 25px,
+                var(--gold) 25px,
+                var(--gold) 30px,
+                var(--red) 30px,
+                var(--red) 55px,
+                var(--black) 55px,
+                var(--black) 60px
+            );
+        }
+        
+        .stripe-diagonal {
+            height: 20px;
+            background: repeating-linear-gradient(
+                -45deg,
+                var(--red) 0px,
+                var(--red) 10px,
+                var(--gold) 10px,
+                var(--gold) 12px,
+                var(--black) 12px,
+                var(--black) 22px
+            );
+        }
+        
+        /* ========== 头部 ========== */
+        .header {
+            background: var(--red);
+            padding: 30px 20px 50px;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .header::before {
+            content: '';
+            position: absolute;
+            top: -50px;
+            right: -50px;
+            width: 150px;
+            height: 150px;
+            background: var(--gold);
+            opacity: 0.1;
+            border-radius: 50%;
+        }
+        
+        .header::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 30px;
+            background: var(--black);
+            clip-path: polygon(0 100%, 100% 100%, 100% 0, 50% 100%, 0 0);
+        }
+        
+        .header-badge {
+            display: inline-block;
+            background: var(--gold);
+            color: var(--black);
+            padding: 8px 20px;
+            font-size: 11px;
+            font-weight: 900;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            margin-bottom: 15px;
+        }
+        
+        .header h1 {
+            font-size: 28px;
+            font-weight: 900;
+            color: var(--cream);
+            margin: 10px 0;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .subtitle {
+            font-size: 16px;
+            color: var(--gold);
+            font-weight: 700;
+            margin-top: 5px;
+        }
+        
+        /* ========== 保存按钮 ========== */
+        .save-button {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: var(--gold);
+            color: var(--black);
+            border: none;
+            padding: 12px 24px;
+            font-size: 14px;
+            font-weight: 700;
+            border-radius: 8px;
+            cursor: pointer;
+            z-index: 1000;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            transition: all 0.3s;
+        }
+        
+        .save-button:hover {
+            background: var(--orange);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(0,0,0,0.4);
+        }
+        
+        .save-button:active {
+            transform: translateY(0);
+        }
+        
+        /* ========== 群友卡片 ========== */
+        .user-section {
+            padding: 30px 20px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        
+        @media (max-width: 950px) {
+            .user-section {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        .user-card {
+            background: var(--dark);
+            border: 2px solid var(--gold);
+            border-radius: 12px;
+            padding: 20px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .user-card::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -50%;
+            width: 200px;
+            height: 200px;
+            background: var(--red);
+            opacity: 0.05;
+            border-radius: 50%;
+        }
+        
+        .user-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        
+        .user-avatar {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            border: 2px solid var(--gold);
+            margin-right: 12px;
+            object-fit: cover;
+            flex-shrink: 0;
+        }
+        
+        .user-info {
+            flex: 1;
+        }
+        
+        .user-name {
+            font-size: 18px;
+            font-weight: 900;
+            color: var(--gold);
+            margin-bottom: 5px;
+            word-break: break-word;
+        }
+        
+        .user-stats {
+            font-size: 11px;
+            color: var(--cream);
+            opacity: 0.8;
+            line-height: 1.4;
+        }
+        
+        .user-stats span {
+            display: inline-block;
+            margin-right: 10px;
+            margin-bottom: 3px;
+        }
+        
+        /* ========== 代表性词汇 ========== */
+        .words-section {
+            margin: 20px 0;
+        }
+        
+        .words-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--gold);
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+        }
+        
+        .words-title::before {
+            content: '💬';
+            margin-right: 8px;
+        }
+        
+        .words-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        
+        .word-tag {
+            background: var(--red);
+            color: var(--cream);
+            padding: 5px 10px;
+            border-radius: 16px;
+            font-size: 12px;
+            font-weight: 700;
+            border: 1px solid var(--gold);
+            position: relative;
+            white-space: nowrap;
+        }
+        
+        .word-count {
+            font-size: 11px;
+            opacity: 0.8;
+            margin-left: 4px;
+        }
+        
+        /* ========== AI锐评 ========== */
+        .comment-section {
+            margin-top: 20px;
+            padding: 15px;
+            background: rgba(218, 165, 32, 0.1);
+            border-left: 4px solid var(--gold);
+            border-radius: 8px;
+        }
+        
+        .comment-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--gold);
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+        }
+        
+        .comment-title::before {
+            content: '✨';
+            margin-right: 8px;
+        }
+        
+        .comment-text {
+            font-size: 13px;
+            line-height: 1.6;
+            color: var(--cream);
+            font-style: italic;
+        }
+        
+        /* ========== 底部 ========== */
+        .footer {
+            text-align: center;
+            padding: 30px 20px;
+            color: var(--cream);
+            opacity: 0.6;
+            font-size: 12px;
+        }
+        
+        /* ========== 空状态 ========== */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--cream);
+            opacity: 0.6;
+        }
+        
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 20px;
+        }
+        
+        .empty-state-text {
+            font-size: 16px;
+        }
+    </style>
+</head>
+<body>
+    <button class="save-button" onclick="saveAsImage()">💾 保存图片</button>
+    
+    <div class="report-container" id="report-container">
+        <div class="stripe"></div>
+        
+        <!-- 头部 -->
+        <div class="header">
+            <div class="header-badge">Personality Report</div>
+            <h1>{{ chat_name }}</h1>
+            <div class="subtitle">群友性格锐评</div>
+        </div>
+        
+        <div class="stripe-diagonal"></div>
+        
+        <!-- 群友列表 -->
+        <div class="user-section">
+            {% if user_personalities %}
+                {% for user in user_personalities %}
+                <div class="user-card">
+                    <div class="user-header">
+                        <img src="{{ user.avatar }}" alt="{{ user.name }}" class="user-avatar" onerror="this.src='https://q1.qlogo.cn/g?b=qq&nk=0&s=640'">
+                        <div class="user-info">
+                            <div class="user-name">{{ user.name }}</div>
+                            <div class="user-stats">
+                                <span>📝 {{ user.stats.message_count | format_number }}条</span>
+                                <span>✍️ {{ user.stats.char_count | format_number }}字</span>
+                                {% if user.stats.avg_chars_per_msg > 0 %}
+                                <span>📊 {{ "%.1f"|format(user.stats.avg_chars_per_msg) }}字/条</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="words-section">
+                        <div class="words-title">代表性词汇</div>
+                        <div class="words-list">
+                            {% for word_info in user.words %}
+                            <div class="word-tag">
+                                {{ word_info.word }}<span class="word-count">({{ word_info.count }}次)</span>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    
+                    {% if user.personality_comment %}
+                    <div class="comment-section">
+                        <div class="comment-title">AI锐评</div>
+                        <div class="comment-text">{{ user.personality_comment }}</div>
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="empty-state">
+                    <div class="empty-state-icon">😶</div>
+                    <div class="empty-state-text">暂无群友性格锐评数据</div>
+                </div>
+            {% endif %}
+        </div>
+        
+        <div class="stripe-diagonal"></div>
+        
+        <!-- 底部 -->
+        <div class="footer">
+            <p>Generated by QQ群年度报告分析器</p>
+            <p>{{ chat_name }} - {{ message_count | format_number }}条消息</p>
+        </div>
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <script>
+        // 检测是否为分享模式（用于截图时隐藏按钮）
+        (function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const isShareMode = urlParams.get('mode') === 'share';
+            
+            if (isShareMode) {
+                // 分享模式：隐藏保存按钮
+                document.addEventListener('DOMContentLoaded', function() {
+                    const saveButton = document.querySelector('.save-button');
+                    if (saveButton) {
+                        saveButton.style.display = 'none';
+                    }
+                });
+                
+                // 如果DOM已经加载完成
+                if (document.readyState === 'complete' || document.readyState === 'interactive') {
+                    const saveButton = document.querySelector('.save-button');
+                    if (saveButton) {
+                        saveButton.style.display = 'none';
+                    }
+                }
+            }
+        })();
+        
+        function saveAsImage() {
+            const button = document.querySelector('.save-button');
+            const originalText = button.textContent;
+            button.textContent = '⏳ 生成中...';
+            button.disabled = true;
+            
+            const container = document.getElementById('report-container');
+            
+            // 隐藏保存按钮
+            button.style.display = 'none';
+            
+            // 等待所有图片加载完成（特别是base64图片）
+            const images = container.querySelectorAll('img');
+            const imagePromises = Array.from(images).map(img => {
+                return new Promise((resolve) => {
+                    if (img.complete && img.naturalHeight !== 0) {
+                        resolve();
+                        return;
+                    }
+                    // base64图片通常立即加载
+                    if (img.src && img.src.startsWith('data:')) {
+                        setTimeout(() => resolve(), 100);
+                        return;
+                    }
+                    img.onload = () => resolve();
+                    img.onerror = () => resolve();  // 失败也继续
+                    setTimeout(() => resolve(), 3000);  // 超时保护
+                });
+            });
+            
+            Promise.all(imagePromises).then(() => {
+                html2canvas(container, {
+                    backgroundColor: '#1a1a1a',
+                    scale: 2,
+                    useCORS: true,
+                    allowTaint: false,  // 不允许跨域图片污染canvas
+                    logging: false,
+                    width: container.offsetWidth || 900,
+                    height: container.scrollHeight,
+                    // 对于base64图片，html2canvas应该能正确处理
+                    imageTimeout: 5000
+                }).then(canvas => {
+                // 显示保存按钮
+                button.style.display = 'block';
+                button.textContent = originalText;
+                button.disabled = false;
+                
+                // 创建下载链接
+                const link = document.createElement('a');
+                link.download = '{{ chat_name }}_群友性格锐评.png';
+                link.href = canvas.toDataURL('image/png');
+                link.click();
+                }).catch(err => {
+                    console.error('html2canvas失败:', err);
+                    alert('保存图片失败，请重试');
+                    button.style.display = 'block';
+                    button.textContent = originalText;
+                    button.disabled = false;
+                });
+            }).catch(err => {
+                console.error('等待图片加载失败:', err);
+                // 即使等待失败，也尝试截图
+                html2canvas(container, {
+                    backgroundColor: '#1a1a1a',
+                    scale: 2,
+                    useCORS: true,
+                    allowTaint: false,
+                    logging: false,
+                    width: container.offsetWidth || 900,
+                    height: container.scrollHeight,
+                    imageTimeout: 5000
+                }).then(canvas => {
+                    button.style.display = 'block';
+                    button.textContent = originalText;
+                    button.disabled = false;
+                    const link = document.createElement('a');
+                    link.download = '{{ chat_name }}_群友性格锐评.png';
+                    link.href = canvas.toDataURL('image/png');
+                    link.click();
+                }).catch(err => {
+                    console.error('保存图片失败:', err);
+                    alert('保存图片失败，请重试');
+                    button.style.display = 'block';
+                    button.textContent = originalText;
+                    button.disabled = false;
+                });
+            });
+        }
+    </script>
+</body>
+</html>
