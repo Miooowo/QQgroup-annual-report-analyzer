@@ -224,7 +224,22 @@ def upload_and_analyze():
                 'user_msg_count': dict(analyzer.user_msg_count),
                 'user_char_count': dict(analyzer.user_char_count),
                 'user_char_per_msg': analyzer.user_char_per_msg,
-                'uin_to_name': analyzer.uin_to_name
+                'uin_to_name': analyzer.uin_to_name,
+                # 新增：情感统计
+                'user_positive_count': dict(getattr(analyzer, 'user_positive_count', {})),
+                'user_negative_count': dict(getattr(analyzer, 'user_negative_count', {})),
+                'user_neutral_count': dict(getattr(analyzer, 'user_neutral_count', {})),
+                # 新增：@目标统计
+                'user_at_targets': {
+                    uin: dict(targets) 
+                    for uin, targets in getattr(analyzer, 'user_at_targets', {}).items()
+                },
+                # 新增：表情统计
+                'user_emoji_count': dict(getattr(analyzer, 'user_emoji_count', {})),
+                # 新增：发言样本
+                'user_message_samples': dict(getattr(analyzer, 'user_message_samples', {})),
+                # 新增：总消息数（用于计算平均每小时发言数）
+                'total_messages': len(analyzer.messages) if hasattr(analyzer, 'messages') else 0
             }
             with open(analyzer_data_path, 'w', encoding='utf-8') as f:
                 json.dump(analyzer_data, f, ensure_ascii=False, indent=2)
@@ -243,6 +258,194 @@ def upload_and_analyze():
         # 清理临时文件
         cleanup_temp_files(temp_path)
         return jsonify({"error": f"分析失败: {exc}"}), 500
+
+
+@app.route("/api/upload-batch", methods=["POST"])
+def upload_and_analyze_batch():
+    """
+    批量上传并分析多个群聊记录文件
+    支持一次处理最多5个文件，每个文件独立生成报告
+    """
+    if not db_service:
+        return jsonify({"error": "数据库服务未初始化"}), 500
+    
+    # 获取文件列表（最多5个）
+    files = request.files.getlist("files")
+    if not files or len(files) == 0:
+        return jsonify({"error": "缺少文件"}), 400
+    
+    if len(files) > 5:
+        return jsonify({"error": "最多只能同时处理5个文件"}), 400
+    
+    # 验证所有文件类型
+    for file in files:
+        if not allowed_file(file.filename):
+            return jsonify({"error": f"文件 {file.filename} 不是有效的JSON文件"}), 400
+    
+    # 获取是否AI自动选词
+    auto_select = request.form.get("auto_select", "false").lower() == "true"
+    
+    # 添加请求日志
+    print(f"\n{'='*60}")
+    print(f"📤 收到批量上传请求 | 文件数量: {len(files)}")
+    print(f"   AI自动选词: {auto_select}")
+    print(f"   请求来源: {request.remote_addr}")
+    print(f"{'='*60}\n")
+    
+    results = []
+    errors = []
+    
+    # 逐个处理文件
+    for idx, file in enumerate(files, 1):
+        file_report_id = str(uuid.uuid4())
+        
+        print(f"\n📄 处理文件 {idx}/{len(files)}: {file.filename}")
+        
+        try:
+            # 临时保存文件
+            base_dir = os.path.join(PROJECT_ROOT, "runtime_outputs")
+            temp_dir = os.path.join(base_dir, "temp")
+            os.makedirs(temp_dir, exist_ok=True)
+            temp_path = os.path.join(temp_dir, f"{file_report_id}.json")
+            file.save(temp_path)
+            
+            # 分析文件
+            data = load_json(temp_path)
+            analyzer = analyzer_mod.ChatAnalyzer(data)
+            analyzer.analyze()
+            report = analyzer.export_json()
+            
+            # 获取热词列表
+            all_words = report.get('topWords', [])[:100]
+            
+            # 如果是AI自动选词
+            if auto_select:
+                print(f"   🤖 启动AI智能选词...")
+                ai_selector = AIWordSelector()
+                
+                if ai_selector.client:
+                    selected_word_objects = ai_selector.select_words(all_words, top_n=200)
+                    
+                    if selected_word_objects:
+                        selected_word_objects_sorted = sorted(
+                            selected_word_objects, 
+                            key=lambda w: w['freq'], 
+                            reverse=True
+                        )
+                        selected_words = [w['word'] for w in selected_word_objects_sorted]
+                        print(f"   ✅ AI选词成功: {', '.join(selected_words[:5])}...")
+                    else:
+                        print("   ⚠️ AI选词失败，使用前10个热词")
+                        selected_words = [w['word'] for w in all_words[:10]]
+                else:
+                    print("   ⚠️ OpenAI未配置，使用前10个热词")
+                    selected_words = [w['word'] for w in all_words[:10]]
+                
+                # 直接生成报告
+                result_response = finalize_report(
+                    report_id=file_report_id,
+                    analyzer=analyzer,
+                    selected_words=selected_words,
+                    auto_mode=True
+                )
+                
+                # 解析响应获取report_id
+                if hasattr(result_response, 'get_json'):
+                    result_data = result_response.get_json()
+                    if result_data and result_data.get('success'):
+                        results.append({
+                            'filename': file.filename,
+                            'report_id': result_data.get('report_id'),
+                            'report_url': result_data.get('report_url'),
+                            'chat_name': report.get('chatName', '未知群聊'),
+                            'message_count': report.get('messageCount', 0),
+                            'status': 'success'
+                        })
+                        print(f"   ✅ 文件 {idx} 处理成功: {file.filename}")
+                    else:
+                        errors.append({
+                            'filename': file.filename,
+                            'error': result_data.get('error', '生成报告失败')
+                        })
+                        print(f"   ❌ 文件 {idx} 处理失败: {file.filename}")
+                else:
+                    errors.append({
+                        'filename': file.filename,
+                        'error': '无法解析响应'
+                    })
+                
+                # 删除临时文件
+                cleanup_temp_files(temp_path)
+            else:
+                # 手动选词模式：保存分析结果供后续使用
+                result_temp_path = os.path.join(temp_dir, f"{file_report_id}_result.json")
+                with open(result_temp_path, 'w', encoding='utf-8') as f:
+                    json.dump(report, f, ensure_ascii=False, indent=2)
+                
+                # 保存analyzer数据
+                analyzer_data_path = os.path.join(temp_dir, f"{file_report_id}_analyzer_data.json")
+                try:
+                    analyzer_data = {
+                        'word_contributors': {
+                            word: dict(contributors) 
+                            for word, contributors in analyzer.word_contributors.items()
+                        },
+                        'user_msg_count': dict(analyzer.user_msg_count),
+                        'user_char_count': dict(analyzer.user_char_count),
+                        'user_char_per_msg': analyzer.user_char_per_msg,
+                        'uin_to_name': analyzer.uin_to_name,
+                        # 新增：情感统计
+                        'user_positive_count': dict(getattr(analyzer, 'user_positive_count', {})),
+                        'user_negative_count': dict(getattr(analyzer, 'user_negative_count', {})),
+                        'user_neutral_count': dict(getattr(analyzer, 'user_neutral_count', {})),
+                        # 新增：@目标统计
+                        'user_at_targets': {
+                            uin: dict(targets) 
+                            for uin, targets in getattr(analyzer, 'user_at_targets', {}).items()
+                        },
+                        # 新增：表情统计
+                        'user_emoji_count': dict(getattr(analyzer, 'user_emoji_count', {})),
+                        # 新增：发言样本
+                        'user_message_samples': dict(getattr(analyzer, 'user_message_samples', {})),
+                        # 新增：总消息数
+                        'total_messages': len(analyzer.messages) if hasattr(analyzer, 'messages') else 0
+                    }
+                    with open(analyzer_data_path, 'w', encoding='utf-8') as f:
+                        json.dump(analyzer_data, f, ensure_ascii=False, indent=2)
+                except Exception as e:
+                    print(f"   ⚠️ 保存analyzer数据失败: {e}")
+                
+                results.append({
+                    'filename': file.filename,
+                    'report_id': file_report_id,
+                    'chat_name': report.get('chatName', '未知群聊'),
+                    'message_count': report.get('messageCount', 0),
+                    'available_words': all_words,
+                    'status': 'pending_selection'  # 需要手动选词
+                })
+                print(f"   ✅ 文件 {idx} 分析完成，等待选词: {file.filename}")
+                
+        except Exception as exc:
+            import traceback
+            traceback.print_exc()
+            errors.append({
+                'filename': file.filename,
+                'error': str(exc)
+            })
+            print(f"   ❌ 文件 {idx} 处理失败: {file.filename} - {exc}")
+            # 清理临时文件
+            if 'temp_path' in locals() and os.path.exists(temp_path):
+                cleanup_temp_files(temp_path)
+    
+    # 返回批量处理结果
+    return jsonify({
+        'success': True,
+        'total': len(files),
+        'success_count': len(results),
+        'error_count': len(errors),
+        'results': results,
+        'errors': errors
+    })
 
 
 @app.route("/api/finalize", methods=["POST"])
@@ -299,6 +502,20 @@ def finalize_report_endpoint():
                         self.user_char_count = Counter(analyzer_data.get('user_char_count', {}))
                         self.user_char_per_msg = analyzer_data.get('user_char_per_msg', {})
                         self.uin_to_name = analyzer_data.get('uin_to_name', {})
+                        # 新增：情感统计
+                        self.user_positive_count = Counter(analyzer_data.get('user_positive_count', {}))
+                        self.user_negative_count = Counter(analyzer_data.get('user_negative_count', {}))
+                        self.user_neutral_count = Counter(analyzer_data.get('user_neutral_count', {}))
+                        # 新增：@目标统计
+                        self.user_at_targets = defaultdict(Counter)
+                        for uin, targets in analyzer_data.get('user_at_targets', {}).items():
+                            self.user_at_targets[uin] = Counter(targets)
+                        # 新增：表情统计
+                        self.user_emoji_count = Counter(analyzer_data.get('user_emoji_count', {}))
+                        # 新增：发言样本
+                        self.user_message_samples = defaultdict(list, analyzer_data.get('user_message_samples', {}))
+                        # 新增：总消息数
+                        self.total_messages = analyzer_data.get('total_messages', 0)
                     
                     def get_name(self, uin):
                         return self.uin_to_name.get(uin, f"未知用户({uin})")
@@ -348,10 +565,54 @@ def finalize_report_endpoint():
                             if not selected_words:
                                 continue
                             
+                            # 计算统计数据（与analyzer.py中的逻辑保持一致）
+                            message_count = self.user_msg_count.get(uin, 0)
+                            char_count = self.user_char_count.get(uin, 0)
+                            emoji_count = self.user_emoji_count.get(uin, 0)
+                            
+                            # 计算平均每小时发言数
+                            estimated_hours = 30 * 24  # 假设30天
+                            messages_per_hour = message_count / estimated_hours if estimated_hours > 0 else 0
+                            
+                            # 情感统计
+                            positive_count = self.user_positive_count.get(uin, 0)
+                            negative_count = self.user_negative_count.get(uin, 0)
+                            neutral_count = self.user_neutral_count.get(uin, 0)
+                            total_sentiment = positive_count + negative_count + neutral_count
+                            if total_sentiment > 0:
+                                positive_ratio = positive_count / total_sentiment
+                                negative_ratio = negative_count / total_sentiment
+                                neutral_ratio = neutral_count / total_sentiment
+                            else:
+                                positive_ratio = negative_ratio = neutral_ratio = 0
+                            
+                            # 最常@的群友
+                            at_targets = self.user_at_targets.get(uin, Counter())
+                            top_at_targets = []
+                            for target_uin, count in at_targets.most_common(3):
+                                target_name = self.get_name(target_uin)
+                                top_at_targets.append({'name': target_name, 'count': count})
+                            
+                            # 发言样本
+                            message_samples = self.user_message_samples.get(uin, [])[:5]
+                            
                             user_stats = {
-                                'message_count': self.user_msg_count.get(uin, 0),
-                                'char_count': self.user_char_count.get(uin, 0),
-                                'avg_chars_per_msg': self.user_char_per_msg.get(uin, 0)
+                                'message_count': message_count,
+                                'char_count': char_count,
+                                'avg_chars_per_msg': self.user_char_per_msg.get(uin, 0),
+                                'messages_per_hour': round(messages_per_hour, 2),
+                                'emoji_count': emoji_count,
+                                'emoji_usage_rate': round(emoji_count / message_count, 2) if message_count > 0 else 0,
+                                'sentiment': {
+                                    'positive_count': positive_count,
+                                    'negative_count': negative_count,
+                                    'neutral_count': neutral_count,
+                                    'positive_ratio': round(positive_ratio, 2),
+                                    'negative_ratio': round(negative_ratio, 2),
+                                    'neutral_ratio': round(neutral_ratio, 2),
+                                },
+                                'top_at_targets': top_at_targets,
+                                'message_samples': message_samples
                             }
                             
                             result.append({

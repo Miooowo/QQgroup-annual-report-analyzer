@@ -13,6 +13,7 @@ from utils import (
     clean_text,
     calculate_entropy,
     analyze_single_chars,
+    analyze_sentiment,
     MEANINGLESS_SYMBOLS,
 )
 from tokenizer_wrapper import TokenizerWrapper
@@ -48,6 +49,16 @@ class ChatAnalyzer:
         self.merged_words = {}
         self.single_char_stats = {}  # 单字统计
         self.cleaned_texts = []  # 缓存清洗后的文本
+        # 新增：用户情感统计
+        self.user_positive_count = Counter()  # 正向情感发言数
+        self.user_negative_count = Counter()  # 负向情感发言数
+        self.user_neutral_count = Counter()  # 中立情感发言数
+        # 新增：用户@他人统计
+        self.user_at_targets = defaultdict(Counter)  # {uin: {target_uin: count}}
+        # 新增：用户发言样本（用于AI举例）
+        self.user_message_samples = defaultdict(list)  # {uin: [message_texts]}
+        # 同词异格映射（别名到标准词的映射）
+        self.word_alias_map = getattr(cfg, 'WORD_ALIAS_MAP', {})
         # 初始化分词器
         tokenizer_type = getattr(cfg, 'TOKENIZER_TYPE', 'jieba')
         model_path = getattr(cfg, 'SP_MODEL_PATH', None) or getattr(cfg, 'PKUSEG_MODEL', None)
@@ -62,6 +73,8 @@ class ChatAnalyzer:
             custom_dict_files=custom_dict_files
         )
         self._build_mappings()
+        # 根据群聊名称添加特定词汇
+        self._add_chat_name_words()
 
     def _is_bot_message(self, msg):
         """判断是否为机器人消息（基于 subMsgType）"""
@@ -175,6 +188,31 @@ class ChatAnalyzer:
 
     def get_name(self, uin):
         return self.uin_to_name.get(uin, f"未知用户({uin})")
+    
+    def _add_chat_name_words(self):
+        """根据群聊名称添加特定词汇到词典"""
+        chat_name_words = getattr(cfg, 'CHAT_NAME_WORDS', {})
+        if not chat_name_words:
+            return
+        
+        # 检查群聊名称是否匹配
+        added_words = []
+        for chat_keyword, words_to_add in chat_name_words.items():
+            if chat_keyword in self.chat_name:
+                for word in words_to_add:
+                    # 添加到分词器词典
+                    self.tokenizer.add_word(word, freq=2000)  # 设置较高词频，确保被识别
+                    added_words.append(word)
+                    print(f"   📝 根据群名「{self.chat_name}」添加词汇: {word}")
+        
+        if added_words:
+            print(f"   ✅ 共添加 {len(added_words)} 个群名相关词汇: {', '.join(added_words)}")
+
+    def _normalize_word(self, word):
+        """同词异格处理：将别名映射到标准词"""
+        if word in self.word_alias_map:
+            return self.word_alias_map[word]
+        return word
     
     def _is_id_like_string(self, word):
         """判断是否为ID类字符串（图片ID、消息ID等）"""
@@ -429,6 +467,16 @@ class ChatAnalyzer:
                 if not word:
                     continue
                 
+                # 过滤@符号及其相关内容（额外检查，确保没有遗漏）
+                if word.startswith('@') or '@' in word:
+                    continue
+                
+                # 额外检查：如果词汇看起来像是群昵称（单独出现的英文单词，且可能是过滤@后残留的）
+                # 这种情况应该已经在clean_text中处理，但为了保险起见，这里也检查
+                # 注意：这个检查比较保守，只过滤明显是群昵称的情况
+                # 如果词汇是纯英文单词且长度较短（可能是群昵称），且不在常用词列表中，可能需要过滤
+                # 但这样可能误删，所以暂时不处理，让clean_text函数处理
+                
                 # 跳过纯数字/符号
                 if re.match(r'^[\d\W]+$', word) and not is_emoji(word):
                     continue
@@ -460,13 +508,17 @@ class ChatAnalyzer:
                 if word in cfg.FUNCTION_WORDS:
                     continue
                 
-                self.word_freq[word] += 1
+                # 同词异格处理：将别名映射到标准词
+                normalized_word = self._normalize_word(word)
+                
+                # 统计标准词（如果映射了，统计标准词；否则统计原词）
+                self.word_freq[normalized_word] += 1
                 if sender_uin:
-                    self.word_contributors[word][sender_uin] += 1
-                if len(self.word_samples[word]) < cfg.SAMPLE_COUNT * 3:
+                    self.word_contributors[normalized_word][sender_uin] += 1
+                if len(self.word_samples[normalized_word]) < cfg.SAMPLE_COUNT * 3:
                     # 只收集有意义的样本（过滤掉只包含图片标记、ID等的无意义内容）
                     if self._is_meaningful_sample(cleaned):
-                        self.word_samples[word].append(cleaned)
+                        self.word_samples[normalized_word].append(cleaned)
 
     def _fun_statistics(self):
         """趣味统计"""
@@ -523,6 +575,8 @@ class ChatAnalyzer:
                     if at_type > 0 and at_uid and at_uid != '0':
                         self.user_at_count[sender_uin] += 1
                         self.user_ated_count[at_uid] += 1
+                        # 记录@的目标用户
+                        self.user_at_targets[sender_uin][at_uid] += 1
             
             # 表情统计（包括emoji、[表情:]、gif）
             emojis = extract_emojis(clean)
@@ -549,6 +603,22 @@ class ChatAnalyzer:
             if clean and len(clean) >= 2:
                 if clean == prev_clean and sender_uin != prev_sender:
                     self.user_repeat_count[sender_uin] += 1
+            
+            # 情感分析统计
+            if clean and len(clean) >= 2:
+                sentiment = analyze_sentiment(clean)
+                if sentiment == 'positive':
+                    self.user_positive_count[sender_uin] += 1
+                elif sentiment == 'negative':
+                    self.user_negative_count[sender_uin] += 1
+                else:
+                    self.user_neutral_count[sender_uin] += 1
+                
+                # 收集发言样本（最多保存10条有意义的样本）
+                if self._is_meaningful_sample(clean) and len(self.user_message_samples[sender_uin]) < 10:
+                    # 只保存长度适中的样本（10-100字符）
+                    if 10 <= len(clean) <= 100:
+                        self.user_message_samples[sender_uin].append(clean)
             
             prev_clean = clean if clean else prev_clean  # 空消息不更新
             prev_sender = sender_uin
@@ -894,10 +964,65 @@ class ChatAnalyzer:
                 continue
             
             # 获取用户统计数据
+            message_count = self.user_msg_count.get(uin, 0)
+            char_count = self.user_char_count.get(uin, 0)
+            emoji_count = self.user_emoji_count.get(uin, 0)
+            
+            # 计算平均每小时发言数（假设分析的时间跨度，这里用总消息数估算）
+            # 如果无法准确计算，使用总消息数作为参考
+            total_messages = len(self.messages)
+            if total_messages > 0:
+                # 估算：假设群聊活跃期为30天，每天24小时
+                estimated_hours = 30 * 24
+                messages_per_hour = message_count / estimated_hours if estimated_hours > 0 else 0
+            else:
+                messages_per_hour = 0
+            
+            # 情感统计
+            positive_count = self.user_positive_count.get(uin, 0)
+            negative_count = self.user_negative_count.get(uin, 0)
+            neutral_count = self.user_neutral_count.get(uin, 0)
+            total_sentiment = positive_count + negative_count + neutral_count
+            if total_sentiment > 0:
+                positive_ratio = positive_count / total_sentiment
+                negative_ratio = negative_count / total_sentiment
+                neutral_ratio = neutral_count / total_sentiment
+            else:
+                positive_ratio = negative_ratio = neutral_ratio = 0
+            
+            # 最常@的群友（前3名）
+            at_targets = self.user_at_targets.get(uin, Counter())
+            top_at_targets = []
+            for target_uin, count in at_targets.most_common(3):
+                target_name = self.get_name(target_uin)
+                top_at_targets.append({'name': target_name, 'count': count})
+            
+            # 最常用的表情（从样本中提取）
+            user_samples = self.user_message_samples.get(uin, [])
+            emoji_list = []
+            for sample in user_samples[:20]:  # 只分析前20个样本
+                emojis = extract_emojis(sample)
+                emoji_list.extend(emojis)
+            top_emojis = [emoji for emoji, _ in Counter(emoji_list).most_common(3)]
+            
             user_stats = {
-                'message_count': self.user_msg_count.get(uin, 0),
-                'char_count': self.user_char_count.get(uin, 0),
-                'avg_chars_per_msg': self.user_char_per_msg.get(uin, 0)
+                'message_count': message_count,
+                'char_count': char_count,
+                'avg_chars_per_msg': self.user_char_per_msg.get(uin, 0),
+                'messages_per_hour': round(messages_per_hour, 2),
+                'emoji_count': emoji_count,
+                'emoji_usage_rate': round(emoji_count / message_count, 2) if message_count > 0 else 0,
+                'top_emojis': top_emojis,
+                'sentiment': {
+                    'positive_count': positive_count,
+                    'negative_count': negative_count,
+                    'neutral_count': neutral_count,
+                    'positive_ratio': round(positive_ratio, 2),
+                    'negative_ratio': round(negative_ratio, 2),
+                    'neutral_ratio': round(neutral_ratio, 2),
+                },
+                'top_at_targets': top_at_targets,
+                'message_samples': user_samples[:5]  # 最多5个样本用于AI举例
             }
             
             result.append({

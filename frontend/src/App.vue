@@ -36,6 +36,26 @@
         <p>上传 qq-chat-exporter 导出的 JSON，系统将自动分析并生成年度报告</p>
         
         <div class="card" style="margin-top: 20px;">
+          <h3>处理模式</h3>
+          <div class="mode-selector">
+            <label class="mode-option">
+              <input type="radio" v-model="batchMode" :value="false" />
+              <div class="mode-content">
+                <strong>📄 单个文件</strong>
+                <p>一次处理一个群聊记录文件</p>
+              </div>
+            </label>
+            <label class="mode-option">
+              <input type="radio" v-model="batchMode" :value="true" />
+              <div class="mode-content">
+                <strong>📚 批量处理</strong>
+                <p>一次处理最多5个群聊记录文件</p>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top: 20px;">
           <h3>选词模式</h3>
           <div class="mode-selector">
             <label class="mode-option">
@@ -43,6 +63,9 @@
               <div class="mode-content">
                 <strong>🎯 手动选词</strong>
                 <p>从热词列表中自己选择最能代表这一年的词汇</p>
+                <p v-if="batchMode" style="margin-top: 5px; font-size: 12px; color: #ff9800;">
+                  ⚠️ 批量模式下，每个文件需要单独选词
+                </p>
               </div>
             </label>
             <label class="mode-option">
@@ -50,20 +73,167 @@
               <div class="mode-content">
                 <strong>🤖 AI自动选词</strong>
                 <p>AI自动选择前10个热词并生成报告</p>
+                <p v-if="batchMode" style="margin-top: 5px; font-size: 12px; color: #4CAF50;">
+                  ✅ 批量模式推荐使用此选项
+                </p>
               </div>
             </label>
           </div>
         </div>
 
-        <div class="flex" style="margin-top: 20px;">
+        <!-- 单个文件模式 -->
+        <div v-if="!batchMode" class="flex" style="margin-top: 20px;">
           <input type="file" accept=".json" @change="onFileChange" />
           <button :disabled="loading || !file" @click="uploadAndAnalyze">
             {{ loading ? '⏳ 分析中...' : '开始分析' }}
           </button>
         </div>
+
+        <!-- 批量处理模式 -->
+        <div v-else style="margin-top: 20px;">
+          <div class="flex" style="gap: 10px; align-items: center;">
+            <input 
+              type="file" 
+              accept=".json" 
+              multiple 
+              :max="5"
+              @change="onBatchFileChange" 
+              style="flex: 1;"
+            />
+            <button 
+              :disabled="loading || batchFiles.length === 0" 
+              @click="uploadAndAnalyzeBatch"
+            >
+              {{ loading ? '⏳ 批量分析中...' : `开始分析 (${batchFiles.length}/5)` }}
+            </button>
+          </div>
+          
+          <!-- 已选择的文件列表 -->
+          <div v-if="batchFiles.length > 0" style="margin-top: 15px; padding: 15px; background: #f5f5f5; border-radius: 8px;">
+            <p style="margin: 0 0 10px 0; font-weight: 500;">已选择 {{ batchFiles.length }} 个文件：</p>
+            <ul style="margin: 0; padding-left: 20px;">
+              <li v-for="(f, idx) in batchFiles" :key="idx" style="margin: 5px 0;">
+                {{ f.name }} ({{ (f.size / 1024 / 1024).toFixed(2) }} MB)
+              </li>
+            </ul>
+            <button 
+              @click="batchFiles = []" 
+              style="margin-top: 10px; padding: 5px 10px; font-size: 12px;"
+            >
+              清空列表
+            </button>
+          </div>
+        </div>
         
         <div v-if="loading" class="progress-info">
           <p>{{ loadingMessage }}</p>
+          <!-- 批量处理进度 -->
+          <div v-if="batchMode && batchProgress.total > 0" style="margin-top: 10px;">
+            <div style="background: #e0e0e0; border-radius: 4px; height: 20px; overflow: hidden;">
+              <div 
+                :style="{ 
+                  width: `${(batchProgress.current / batchProgress.total) * 100}%`, 
+                  background: '#4CAF50', 
+                  height: '100%', 
+                  transition: 'width 0.3s'
+                }"
+              ></div>
+            </div>
+            <p style="margin-top: 5px; font-size: 12px; color: #666;">
+              处理进度: {{ batchProgress.current }} / {{ batchProgress.total }}
+            </p>
+          </div>
+        </div>
+
+        <!-- 批量处理结果 -->
+        <div v-if="batchResults.length > 0" style="margin-top: 20px;">
+          <div class="card" style="background: #f0f8ff;">
+            <h3>批量处理结果</h3>
+            <div style="margin-top: 15px;">
+              <p>成功: {{ batchResults.filter(r => r.status === 'success').length }} 个</p>
+              <p v-if="batchErrors.length > 0" style="color: #dc3545;">
+                失败: {{ batchErrors.length }} 个
+              </p>
+              
+              <!-- 成功结果列表 -->
+              <div v-if="batchResults.filter(r => r.status === 'success').length > 0" style="margin-top: 15px;">
+                <h4 style="margin: 10px 0 5px 0; font-size: 14px;">✅ 成功生成报告：</h4>
+                <div 
+                  v-for="(result, idx) in batchResults.filter(r => r.status === 'success')" 
+                  :key="idx"
+                  style="padding: 10px; margin: 5px 0; background: white; border-radius: 4px; border-left: 3px solid #4CAF50;"
+                >
+                  <div style="font-weight: 500;">{{ result.filename }}</div>
+                  <div style="font-size: 12px; color: #666; margin-top: 5px;">
+                    {{ result.chat_name }} | {{ result.message_count }} 条消息
+                  </div>
+                  <div style="margin-top: 8px; display: flex; gap: 8px;">
+                    <button 
+                      @click="openReport(result.report_id)" 
+                      style="padding: 5px 10px; font-size: 12px;"
+                      class="primary"
+                    >
+                      查看报告
+                    </button>
+                    <button 
+                      @click="copyReportUrl(result.report_id)" 
+                      style="padding: 5px 10px; font-size: 12px;"
+                    >
+                      复制链接
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 待选词结果列表（手动选词模式） -->
+              <div v-if="batchResults.filter(r => r.status === 'pending_selection').length > 0" style="margin-top: 15px;">
+                <h4 style="margin: 10px 0 5px 0; font-size: 14px; color: #ff9800;">⏳ 需要手动选词：</h4>
+                <div 
+                  v-for="(result, idx) in batchResults.filter(r => r.status === 'pending_selection')" 
+                  :key="idx"
+                  style="padding: 10px; margin: 5px 0; background: #fff3cd; border-radius: 4px; border-left: 3px solid #ff9800;"
+                >
+                  <div style="font-weight: 500;">{{ result.filename }}</div>
+                  <div style="font-size: 12px; color: #666; margin-top: 5px;">
+                    {{ result.chat_name }} | {{ result.message_count }} 条消息
+                  </div>
+                  <div style="margin-top: 8px;">
+                    <p style="font-size: 12px; color: #666; margin: 0 0 5px 0;">
+                      该文件已分析完成，请前往历史记录页面完成选词
+                    </p>
+                    <button 
+                      @click="activeTab = 'history'; loadReports()" 
+                      style="padding: 5px 10px; font-size: 12px;"
+                    >
+                      前往历史记录
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 错误列表 -->
+              <div v-if="batchErrors.length > 0" style="margin-top: 15px;">
+                <h4 style="margin: 10px 0 5px 0; font-size: 14px; color: #dc3545;">❌ 处理失败：</h4>
+                <div 
+                  v-for="(error, idx) in batchErrors" 
+                  :key="idx"
+                  style="padding: 10px; margin: 5px 0; background: #ffe6e6; border-radius: 4px; border-left: 3px solid #dc3545;"
+                >
+                  <div style="font-weight: 500;">{{ error.filename }}</div>
+                  <div style="font-size: 12px; color: #666; margin-top: 5px;">
+                    {{ error.error }}
+                  </div>
+                </div>
+              </div>
+
+              <button 
+                @click="batchResults = []; batchErrors = []; batchFiles = []" 
+                style="margin-top: 15px;"
+              >
+                清空结果
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -330,6 +500,11 @@ const loading = ref(false)
 const loadingMessage = ref('')
 const loadingReports = ref(false)
 const autoSelect = ref(false)  // 是否AI自动选词
+const batchMode = ref(false)  // 是否批量处理模式
+const batchFiles = ref([])  // 批量处理的文件列表
+const batchResults = ref([])  // 批量处理结果
+const batchErrors = ref([])  // 批量处理错误
+const batchProgress = ref({ current: 0, total: 0 })  // 批量处理进度
 
 // 当前报告数据
 const currentReport = ref(null)
@@ -491,15 +666,97 @@ const copyPersonalityUrl = async (reportId) => {
   }
 }
 
-// 文件选择
+// 文件选择（单个文件）
 const onFileChange = (e) => {
   const [f] = e.target.files || []
   file.value = f || null
 }
 
+// 批量文件选择
+const onBatchFileChange = (e) => {
+  const files = Array.from(e.target.files || [])
+  if (files.length > 5) {
+    alert('最多只能选择5个文件')
+    batchFiles.value = files.slice(0, 5)
+  } else {
+    batchFiles.value = files
+  }
+}
+
+// 批量上传并分析
+const uploadAndAnalyzeBatch = async () => {
+  if (batchFiles.value.length === 0) return
+  
+  loading.value = true
+  batchResults.value = []
+  batchErrors.value = []
+  batchProgress.value = { current: 0, total: batchFiles.value.length }
+  
+  loadingMessage.value = `正在批量处理 ${batchFiles.value.length} 个文件...`
+  
+  try {
+    const form = new FormData()
+    batchFiles.value.forEach(f => {
+      form.append('files', f)
+    })
+    form.append('auto_select', autoSelect.value ? 'true' : 'false')
+    
+    // 批量处理需要更长的超时时间
+    const timeoutMs = batchFiles.value.length * 300 * 1000  // 每个文件最多5分钟
+    const timeoutSeconds = Math.ceil(timeoutMs / 1000)
+    
+    loadingMessage.value = `正在批量处理 ${batchFiles.value.length} 个文件...\n（预计最多需要 ${timeoutSeconds} 秒）`
+    
+    const { data } = await axios.post(`${API_BASE}/upload-batch`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: timeoutMs
+    })
+    
+    if (data.error) throw new Error(data.error)
+    
+    // 处理批量结果
+    if (data.results) {
+      data.results.forEach(result => {
+        if (result.status === 'success') {
+          // 保存到本地存储
+          saveMyReport(result.report_id)
+          batchResults.value.push(result)
+        } else if (result.status === 'pending_selection') {
+          // 手动选词模式，暂时标记为待处理
+          batchResults.value.push(result)
+        }
+      })
+    }
+    
+    if (data.errors) {
+      batchErrors.value = data.errors
+    }
+    
+    batchProgress.value = { current: data.success_count || 0, total: data.total || 0 }
+    
+    // 如果全部成功且是AI自动模式，显示成功消息
+    if (data.success_count === data.total && autoSelect.value) {
+      alert(`批量处理完成！成功生成 ${data.success_count} 个报告`)
+    }
+    
+  } catch (err) {
+    const respErr = err?.response?.data?.error
+    const msg = respErr ? `批量处理失败: ${respErr}` : `批量处理失败: ${err.message || '未知错误'}`
+    alert(msg)
+  } finally {
+    loading.value = false
+    loadingMessage.value = ''
+    batchProgress.value = { current: 0, total: 0 }
+  }
+}
+
 // 重置状态
 const resetState = () => {
   file.value = null
+  batchFiles.value = []
+  batchResults.value = []
+  batchErrors.value = []
+  batchProgress.value = { current: 0, total: 0 }
   currentReport.value = null
   selectedWords.value = []
   finalResult.value = {}
@@ -616,9 +873,12 @@ const finalizeReport = async () => {
   
   loading.value = true
   
-  // finalize阶段主要是AI评论生成，设置固定超时180秒（3分钟）
-  const finalizeTimeout = 180 * 1000
-  console.log('⏱️ Finalize超时设置: 180 秒（AI评论生成）')
+  // finalize阶段主要是AI评论生成和性格点评，设置更长的超时时间
+  // 如果有10个用户的性格点评，每个用户最多180秒，总共可能需要更长时间
+  // 设置600秒（10分钟）的超时，确保有足够时间完成所有AI分析
+  // 注意：AI性格点评是串行生成的，10个用户可能需要较长时间
+  const finalizeTimeout = 600 * 1000
+  console.log('⏱️ Finalize超时设置: 600 秒（10分钟，AI评论生成和性格点评）')
   
   try {
     // 按词频排序选中的词（从高到低）
